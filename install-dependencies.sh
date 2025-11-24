@@ -1,0 +1,1 @@
+pip install "torch>=2.4" ultralytics "openvino>=2024.5" onnx onnxruntime "openvino-dev>=2024.0"

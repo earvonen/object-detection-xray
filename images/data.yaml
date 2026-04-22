@@ -1,6 +1,6 @@
-train: ../train/images
-val: ../valid/images
-test: ../test/images
+train: train/images
+val: valid/images
+test: test/images
 
 nc: 5
 names: ['0', '1', '2', '3', '4']

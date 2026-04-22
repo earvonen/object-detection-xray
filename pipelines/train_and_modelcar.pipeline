@@ -1,0 +1,128 @@
+{
+  "doc_type": "pipeline",
+  "version": "3.0",
+  "json_schema": "https://api.dataplatform.ibm.com/schemas/common-pipeline/pipeline-flow/pipeline-flow-v3-schema.json",
+  "id": "a4c3b2a1-0001-4000-8000-000000000001",
+  "primary_pipeline": "b5d4c3b2-0002-4000-8000-000000000002",
+  "pipelines": [
+    {
+      "id": "b5d4c3b2-0002-4000-8000-000000000002",
+      "runtime_ref": "",
+      "nodes": [
+        {
+          "id": "c6e5d4c3-1001-4000-8000-000000000011",
+          "type": "execution_node",
+          "op": "execute-notebook-node",
+          "app_data": {
+            "label": "Train YOLO (train.ipynb)",
+            "component_parameters": {
+              "filename": "train.ipynb",
+              "runtime_image": "registry.redhat.io/rhoai/odh-pipeline-runtime-pytorch-cuda-py312-rhel9@sha256:aa457e7394ba73350f5c8e08c56ddba126d9472197e7669c9eb7daa2c02e6777",
+              "env_vars": [],
+              "dependencies": [],
+              "outputs": ["runs-openshift/exp1/weights/best.pt"],
+              "include_subdirectories": false
+            },
+            "ui_data": {
+              "label": "Train YOLO (train.ipynb)",
+              "image": "useDefaultIcon",
+              "x_pos": 80,
+              "y_pos": 80,
+              "description": "Notebook file"
+            }
+          },
+          "inputs": [
+            {
+              "id": "inPort",
+              "app_data": {
+                "ui_data": {
+                  "cardinality": { "min": 0, "max": 1 },
+                  "label": "Input Port"
+                }
+              }
+            }
+          ],
+          "outputs": [
+            {
+              "id": "outPort",
+              "app_data": {
+                "ui_data": {
+                  "cardinality": { "min": 0, "max": -1 },
+                  "label": "Output Port"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "c6e5d4c3-1002-4000-8000-000000000012",
+          "type": "execution_node",
+          "op": "execute-notebook-node",
+          "app_data": {
+            "label": "Kaniko build and push",
+            "component_parameters": {
+              "filename": "pipelines/kaniko_build_push.ipynb",
+              "runtime_image": "REPLACE_ME_KANIKO_ELYRA_RUNTIME_IMAGE",
+              "env_vars": [
+                "IMAGE=image-registry.openshift-image-registry.svc:5000/REPLACE_ME_NAMESPACE/REPLACE_ME_IMAGESTREAM_NAME:latest",
+                "REGISTRY_HOST=image-registry.openshift-image-registry.svc:5000",
+                "CONTAINERFILE=Containerfile"
+              ],
+              "dependencies": ["Containerfile"],
+              "outputs": [],
+              "include_subdirectories": false
+            },
+            "ui_data": {
+              "label": "Kaniko build and push",
+              "image": "useDefaultIcon",
+              "x_pos": 380,
+              "y_pos": 80,
+              "description": "Notebook file"
+            }
+          },
+          "inputs": [
+            {
+              "id": "inPort",
+              "app_data": {
+                "ui_data": {
+                  "cardinality": { "min": 0, "max": 1 },
+                  "label": "Input Port"
+                }
+              },
+              "links": [
+                {
+                  "id": "d7f6e5d4-2001-4000-8000-000000000021",
+                  "node_id_ref": "c6e5d4c3-1001-4000-8000-000000000011",
+                  "port_id_ref": "outPort"
+                }
+              ]
+            }
+          ],
+          "outputs": [
+            {
+              "id": "outPort",
+              "app_data": {
+                "ui_data": {
+                  "cardinality": { "min": 0, "max": -1 },
+                  "label": "Output Port"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "app_data": {
+        "properties": {
+          "name": "train-build-push-modelcar"
+        },
+        "version": 1,
+        "runtime": "kfp",
+        "runtime_config": "REPLACE_ME_DSP_OR_KFP_RUNTIME_CONFIG",
+        "ui_data": {
+          "comments": []
+        }
+      }
+    }
+  ],
+  "schemas": []
+}

@@ -112,15 +112,19 @@
         }
       ],
       "app_data": {
-        "properties": {
-          "name": "train-build-push-modelcar"
+        "ui_data": {
+          "comments": []
         },
-        "version": 1,
+        "version": 8,
         "runtime": "kfp",
         "runtime_type": "KUBEFLOW_PIPELINES",
         "runtime_config": "REPLACE_ME_DSP_OR_KFP_RUNTIME_CONFIG",
-        "ui_data": {
-          "comments": []
+        "name": "train-build-push-modelcar",
+        "source": "train_and_modelcar.pipeline",
+        "properties": {
+          "name": "train-build-push-modelcar",
+          "runtime": "Kubeflow Pipelines",
+          "description": "Train YOLO (train.ipynb), then Kaniko build/push modelcar image (kaniko_build_push.ipynb)."
         }
       }
     }

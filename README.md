@@ -27,7 +27,12 @@ This repository is a compact **OpenShift AI** demo that trains a small object de
 
 ## Elyra pipeline (OpenShift AI Data Science Pipelines)
 
-Open `pipelines/train_and_modelcar.pipeline` in the **Elyra Pipeline Editor** (after cloning this repo into a workbench). The pipeline JSON sets **`runtime_type`: `KUBEFLOW_PIPELINES`** so the editor loads KFP palette/properties (`/elyra/pipeline/KUBEFLOW_PIPELINES/...`). Without that field, Elyra defaults to **`local`**, which many OpenShift AI installs reject with `Invalid runtime type 'local'`.
+Open `pipelines/train_and_modelcar.pipeline` in the **Elyra Pipeline Editor** (after cloning this repo into a workbench).
+
+- **`runtime_type`: `KUBEFLOW_PIPELINES`** — so the editor calls `/elyra/pipeline/KUBEFLOW_PIPELINES/...` instead of defaulting to **`local`** (many OpenShift AI installs reject `local` with `Invalid runtime type 'local'`).
+- **`app_data.version`: `8`** — matches current Elyra **pipeline document** version so the editor does **not** run legacy migration. Older `version: 1` files trigger migration code that assumes **v1** nodes had `app_data.filename`; hand-authored pipelines already use `component_parameters.filename`, so migration could throw **`Path must be a string. Received undefined`**.
+
+If the workbench log shows **`No components could be found in any catalog for platform type 'KUBEFLOW_PIPELINES'`**, add at least one **Kubeflow Pipelines** component catalog in Elyra metadata (see [Pipeline components](https://elyra.readthedocs.io/en/latest/user_guide/pipeline-components.html)); generic **notebook** nodes still work once the palette loads. Your cluster admin may need to enable or ship catalogs for DSP.
 
 The flow matches a two-step Tekton-style job:
 

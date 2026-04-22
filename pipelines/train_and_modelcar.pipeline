@@ -117,6 +117,7 @@
         },
         "version": 1,
         "runtime": "kfp",
+        "runtime_type": "KUBEFLOW_PIPELINES",
         "runtime_config": "REPLACE_ME_DSP_OR_KFP_RUNTIME_CONFIG",
         "ui_data": {
           "comments": []

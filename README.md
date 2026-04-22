@@ -27,7 +27,9 @@ This repository is a compact **OpenShift AI** demo that trains a small object de
 
 ## Elyra pipeline (OpenShift AI Data Science Pipelines)
 
-Open `pipelines/train_and_modelcar.pipeline` in the **Elyra Pipeline Editor** (after cloning this repo into a workbench). The flow matches a two-step Tekton-style job:
+Open `pipelines/train_and_modelcar.pipeline` in the **Elyra Pipeline Editor** (after cloning this repo into a workbench). The pipeline JSON sets **`runtime_type`: `KUBEFLOW_PIPELINES`** so the editor loads KFP palette/properties (`/elyra/pipeline/KUBEFLOW_PIPELINES/...`). Without that field, Elyra defaults to **`local`**, which many OpenShift AI installs reject with `Invalid runtime type 'local'`.
+
+The flow matches a two-step Tekton-style job:
 
 1. **Train YOLO** — runs `train.ipynb` (runtime image is set in the pipeline file; override in Elyra if needed).
 2. **Kaniko build and push** — runs `pipelines/kaniko_build_push.ipynb`, mirroring the Tekton **Kaniko** task pattern (e.g. `task-build-push.yaml`: prepare registry auth from the **pod ServiceAccount token** — `openshift:<token>` in `config.json` for `REGISTRY_HOST` — then run the Kaniko executor with `--dockerfile`, `--context=dir://<repo root>`, `--destination=<IMAGE>`, `--skip-tls-verify`, and `DOCKER_CONFIG` pointing at that config; executor version **v1.23.2** in the reference Task).

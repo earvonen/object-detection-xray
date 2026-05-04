@@ -24,14 +24,14 @@
 
 set -euo pipefail
 
-S3_ACCESS_KEY="${S3_ACCESS_KEY:?Set S3_ACCESS_KEY}"
-S3_SECRET_KEY="${S3_SECRET_KEY:?Set S3_SECRET_KEY}"
-S3_ENDPOINT="${S3_ENDPOINT:?Set S3_ENDPOINT (e.g. https://s3.us-east-1.amazonaws.com or your MinIO URL)}"
-S3_REGION="${S3_REGION:?Set S3_REGION}"
-S3_BUCKET="${S3_BUCKET:?Set S3_BUCKET}"
+S3_ACCESS_KEY="${AWS_ACCESS_KEY_ID:?Set S3_ACCESS_KEY}"
+S3_SECRET_KEY="${AWS_SECRET_ACCESS_KEY:?Set S3_SECRET_KEY}"
+S3_ENDPOINT="${AWS_S3_ENDPOINT:?Set S3_ENDPOINT (e.g. https://s3.us-east-1.amazonaws.com or your MinIO URL)}"
+S3_REGION="${AWS_DEFAULT_REGION:?Set S3_REGION}"
+S3_BUCKET="${AWS_S3_BUCKET:?Set S3_BUCKET}"
 
-LOCAL_ONNX="${LOCAL_ONNX:-runs-openshift/exp1/weights/best.onnx}"
-S3_KEY="${S3_KEY:-models/best.onnx}"
+LOCAL_ONNX="${LOCAL_ONNX:-runs/detect/runs-openshift/exp1/weights/best.onnx}"
+S3_KEY="${S3_KEY:-object-detection/best.onnx}"
 S3_URI="s3://${S3_BUCKET}/${S3_KEY}"
 
 export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY"

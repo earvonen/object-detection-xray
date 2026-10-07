@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - inferenceservice-xray-detector.yaml
+# Canary / promote / rollback YAMLs are examples for patching the same resource.
+# Apply them intentionally (or via the DSP pipeline), not as a single bulk apply:
+#   inferenceservice-canary-patch.yaml
+#   inferenceservice-promote-100.yaml
+#   inferenceservice-rollback.yaml

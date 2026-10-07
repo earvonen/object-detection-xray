@@ -1,0 +1,37 @@
+# Baseline InferenceService for the X-ray detector (ONNX on S3).
+# Requires OpenShift AI single-model serving in Advanced / Serverless (Knative) mode
+# for canaryTrafficPercent support.
+#
+# Replace placeholders before apply:
+#   REPLACE_ME_NAMESPACE
+#   REPLACE_ME_STORAGE_URI   e.g. s3://my-bucket/object-detection/xray-detector/<run_id>
+#   OR use storage.key + storage.path with an OpenShift AI Connection (recommended).
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: xray-detector
+  namespace: REPLACE_ME_NAMESPACE
+  annotations:
+    serving.kserve.io/deploymentMode: Serverless
+    serving.kserve.io/enable-tag-routing: "true"
+  labels:
+    app.kubernetes.io/name: xray-detector
+    app.kubernetes.io/part-of: xray-lifecycle-demo
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: onnx
+      protocolVersion: v2
+      # Prefer Connection-based storage when available:
+      # storage:
+      #   key: REPLACE_ME_STORAGE_KEY
+      #   path: object-detection/xray-detector/REPLACE_ME_RUN_ID
+      storageUri: REPLACE_ME_STORAGE_URI
+      resources:
+        requests:
+          cpu: "500m"
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi

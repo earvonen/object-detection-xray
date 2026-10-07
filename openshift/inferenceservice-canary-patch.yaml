@@ -1,0 +1,21 @@
+# Example canary rollout: 10% traffic to the new storage URI / path.
+# Apply after the baseline InferenceService is Ready, or let the DSP pipeline
+# perform an equivalent merge patch.
+#
+# Knative Serverless mode required.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: xray-detector
+  namespace: REPLACE_ME_NAMESPACE
+  annotations:
+    serving.kserve.io/deploymentMode: Serverless
+    serving.kserve.io/enable-tag-routing: "true"
+spec:
+  predictor:
+    canaryTrafficPercent: 10
+    model:
+      modelFormat:
+        name: onnx
+      protocolVersion: v2
+      storageUri: REPLACE_ME_STORAGE_URI

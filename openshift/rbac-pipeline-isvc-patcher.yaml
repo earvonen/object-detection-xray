@@ -1,0 +1,24 @@
+# Example RBAC for a pipeline ServiceAccount that patches the InferenceService.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: xray-isvc-patcher
+  namespace: REPLACE_ME_NAMESPACE
+rules:
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: xray-isvc-patcher
+  namespace: REPLACE_ME_NAMESPACE
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: xray-isvc-patcher
+subjects:
+  - kind: ServiceAccount
+    name: REPLACE_ME_PIPELINE_SA
+    namespace: REPLACE_ME_NAMESPACE

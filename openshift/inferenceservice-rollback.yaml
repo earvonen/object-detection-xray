@@ -1,0 +1,18 @@
+# Roll back canary: pin 0% traffic to the new revision (previous good keeps 100%).
+# See https://kserve.github.io/website/docs/model-serving/predictive-inference/rollout-strategies/canary-example
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: xray-detector
+  namespace: REPLACE_ME_NAMESPACE
+  annotations:
+    serving.kserve.io/deploymentMode: Serverless
+    serving.kserve.io/enable-tag-routing: "true"
+spec:
+  predictor:
+    canaryTrafficPercent: 0
+    model:
+      modelFormat:
+        name: onnx
+      protocolVersion: v2
+      storageUri: REPLACE_ME_STORAGE_URI

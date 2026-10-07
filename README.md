@@ -1,50 +1,127 @@
-# X-ray object detection (OpenShift AI demo)
+# X-ray object detection — MLflow → Model Registry → KServe
 
-This repository is a compact demo for **Red Hat OpenShift AI**: train a small object detector on thousands of X-ray style scans of baggage or containers, where some images contain **prohibited items** and are annotated with bounding boxes.
+OpenShift AI demo of an end-to-end **model lifecycle** for X-ray baggage / prohibited-item detection:
 
-The workflow is notebook-driven: train with [Ultralytics](https://docs.ultralytics.com/) YOLO, run quick inference, then optionally export the best weights for **ONNX** and **OpenVINO** for edge or CPU-oriented deployment stories.
+**Experiment → Track → Evaluate → Select → Register → Promote → Deploy → Validate → Roll back or promote further**
 
-## What is in the dataset?
+| Layer | Role in this demo |
+|-------|-------------------|
+| **MLflow** | Data-scientist experiments only (params, metrics, dataset lineage, artifacts) |
+| **OpenShift AI Model Registry** | Production boundary — curated versions; `stage=prod` is the production designation |
+| **Data Science Pipelines** | Resolve `stage=prod` and update KServe (canary → 100% or rollback) |
+| **KServe (Serverless)** | Serve ONNX; canary traffic split |
 
-- **Source**: [Roboflow Universe — X-ray baggage detection (prohibited items)](https://universe.roboflow.com/malek-mhnrl/x-ray-baggage-detection/dataset/1), exported in **YOLO** format (CC BY 4.0). See `images/README.roboflow.txt` and `images/README.dataset.txt` for export metadata.
-- **Layout** (under `images/`): `train/`, `valid/`, and `test/` each contain `images/` and `labels/` (YOLO `.txt` per image: `class cx cy w h` in normalized coordinates).
-- **Task**: **5-class object detection** (`nc: 5` in `images/data.yaml`). Class names in the YAML are numeric placeholders (`0`–`4`); the Roboflow project page describes the semantic item categories.
+MLflow Model Registry aliases (e.g. `@prod`) are **not** used. Production moves by changing `stage=prod` on an OpenShift AI Model Registry version.
+
+```text
+Jupyter workbench
+  → MLflow experiments (many runs)
+  → compare / select (few candidates)
+  → ONNX → S3
+  → OpenShift AI Model Registry (stage=candidate → stage=prod)
+  → DSP pipeline
+  → KServe InferenceService (canary → promote / rollback)
+```
+
+## Dataset
+
+- **Source**: [Roboflow — X-ray baggage detection](https://universe.roboflow.com/malek-mhnrl/x-ray-baggage-detection/dataset/1) (YOLO format, CC BY 4.0)
+- Layout under `images/` with `data.yaml` (`nc: 5`)
+
+## Prerequisites (cluster)
+
+- OpenShift AI with **MLflow**, **Model Registry**, **Data Science Pipelines**, and **single-model serving**
+- KServe in **Advanced / Serverless** mode (required for `canaryTrafficPercent`)
+- S3-compatible object storage + project Connection
+- GPU workbench recommended for training (CPU works; use short `DEMO_EPOCHS`)
+
+Environment variables: [`docs/env.md`](docs/env.md).
+
+## Setup
+
+### Cluster bootstrap (with `oc` login)
+
+Platform components (MLflow, Model Registry, DSP, KServe Serverless) must already exist.
+This creates project **`object-detection-xray`**, pipeline SA/RBAC, optional S3 Connection, and optionally the InferenceService:
+
+```bash
+oc login ...
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
+export AWS_S3_ENDPOINT=... AWS_DEFAULT_REGION=us-east-1 AWS_S3_BUCKET=models
+# Optional until a model is in S3:
+# export STORAGE_URI=s3://$AWS_S3_BUCKET/object-detection/xray-detector/<run_id>
+./deploy.sh
+source .deploy/env.cluster.sh
+```
+
+### Workbench packages
+
+```bash
+bash install-dependencies.sh
+```
+
+Clone or mount this repo at the workbench root so paths like `images/data.yaml` resolve.
+
+## Demo flow (presenter script)
+
+Aim for ~20–30 minutes with short training runs (`DEMO_EPOCHS=3`).
+
+1. **Train & track** — [`notebooks/01_train_track.ipynb`](notebooks/01_train_track.ipynb)  
+   Run 2–3 hyperparameter variants; each run logs to MLflow. Emphasize experiment history, not registration.
+
+2. **Evaluate & select** — [`notebooks/02_evaluate_select.ipynb`](notebooks/02_evaluate_select.ipynb)  
+   Compare runs; pick one. Explicitly show that other runs are **not** registered.
+
+3. **Export & register** — [`notebooks/03_export_register.ipynb`](notebooks/03_export_register.ipynb)  
+   ONNX export → versioned S3 key `object-detection/xray-detector/<run_id>/model.onnx` → register in OpenShift AI Model Registry as `stage=candidate` with `mlflow_run_id` lineage.
+
+4. **Promote prod** — [`notebooks/04_promote_prod.ipynb`](notebooks/04_promote_prod.ipynb)  
+   Set `stage=prod` on the chosen version (clears previous prod). Show the pipeline contract (`uri` / `storage_path`).
+
+5. **Deploy canary** — [`pipelines/promote_deploy_canary.py`](pipelines/promote_deploy_canary.py)  
+   ```bash
+   python pipelines/promote_deploy_canary.py --action leave-canary
+   ```  
+   Or compile/import into Data Science Pipelines (`--compile`). Patches [`openshift/inferenceservice-xray-detector.yaml`](openshift/inferenceservice-xray-detector.yaml) with 10% canary.
+
+6. **Validate** — [`notebooks/05_infer_served.ipynb`](notebooks/05_infer_served.ipynb)  
+   Hit the InferenceService; optionally `latest-` / `prev-` tag routes.
+
+7. **Promote or roll back**  
+   ```bash
+   python pipelines/promote_deploy_canary.py --action promote   # 100%
+   # or
+   python pipelines/promote_deploy_canary.py --action rollback  # canaryTrafficPercent: 0
+   ```
+
+Warm-start option: skip live training and export from checked-in `runs-openshift/exp1/weights/best.pt` by setting tags/paths manually — useful if GPU time is limited.
 
 ## Repository layout
 
 | Path | Purpose |
 |------|---------|
-| `train.ipynb` | Train `yolov8n.pt` on `images/data.yaml`, writing runs to `runs-openshift/exp1/` (`project=runs-openshift`, `name=exp1`). |
-| `test.ipynb` | Load `runs-openshift/exp1/weights/best.pt` and run detection on `knife.jpg` (example single-image inference). |
-| `export.ipynb` | Export `best.pt` to **ONNX**, then convert toward **OpenVINO IR** via `openvino.tools.mo.convert_model` (legacy MO API; see notebook output for OpenVINO migration notes). |
-| `install-dependencies.sh` | Example `pip install` line for training, export, and OpenVINO tooling. |
-| `images/data.yaml` | YOLO dataset config: paths are **relative to this file’s directory** (`images/`). |
-| `runs-openshift/exp1/` | Training outputs (e.g. `args.yaml`, `results.csv`, weights when you train). The repo may ship only partial artifacts; run `train.ipynb` to regenerate `weights/`. |
-| `yolov8n.pt` / `yolo11n.pt` | Optional local base checkpoints; Ultralytics can also download weights on first use. |
+| `notebooks/01_…05_…` | Lifecycle notebooks |
+| `src/` | Dataset fingerprint, MLflow helpers, Model Registry client, S3 + KServe utils |
+| `openshift/` | InferenceService + canary/promote/rollback examples + pipeline RBAC |
+| `pipelines/` | Promote/deploy/canary pipeline (CLI + KFP compile) |
+| `docs/env.md` | Environment variables |
+| `train.ipynb` / `test.ipynb` / `export.ipynb` | Legacy single-cell notebooks (still usable; paths aligned to `runs-openshift/`) |
+| `upload-best-onnx-to-s3.sh` | Optional AWS CLI upload helper |
 
-## Prerequisites
+## Why OpenShift AI Model Registry here?
 
-- Python **3.12** (matches notebook metadata used in this project).
-- **GPU** recommended for training (the checked-in logs reference CUDA on an A100-class GPU); CPU is possible but slow.
-- Dependencies (see `install-dependencies.sh`):
+MLflow remains the familiar DS experiment system. The OpenShift AI Model Registry is the **operational** handoff: only curated models, dashboard visibility, RBAC/project sharing, and a stable contract for pipelines and KServe. That keeps “every experiment artifact” out of production serving.
 
-```bash
-pip install "numpy>=2.0.0,<3" "torch>=2.4" ultralytics "openvino>=2024.5" onnx onnxruntime
-```
+## Serving notes
 
-## Running the demo
+- Format: **ONNX** on S3-compatible storage
+- Canary requires Knative Serverless mode
+- YOLO ONNX may need client-side letterbox/NMS for polished boxes; notebook 05 proves endpoint reachability and lifecycle wiring
 
-1. **Install** the packages above in your OpenShift AI workbench or local environment.
-2. Open **`train.ipynb`** and execute the training cell. This calls `YOLO("yolov8n.pt").train(...)` with `data="images/data.yaml"`, `epochs=50`, `imgsz=640`, and logs under `runs-openshift/exp1/`.
-3. Open **`test.ipynb`** to run inference on `knife.jpg` using `runs-openshift/exp1/weights/best.pt`.
-4. Optionally run **`export.ipynb`** after training to produce ONNX and OpenVINO-oriented artifacts under `runs-openshift/exp1/weights/`.
+## Automation path
 
-## Notes for presenters
-
-- **Narrative**: screening / contraband detection is a relatable use case for regulated or security-adjacent ML; emphasize responsible use, dataset licensing, and that metrics on a public demo set do not imply production readiness.
-- **OpenShift AI**: mount or clone this repo into a workbench, use a GPU-enabled notebook image, and keep run artifacts on persistent storage (`runs-openshift/`).
-- **Class names**: replace the placeholder names in `images/data.yaml` with human-readable labels if you publish plots or a UI, as long as they stay aligned with the integer IDs in the label files.
+The demo runs the pipeline **after** `stage=prod` is set. The same pipeline is the automation seam for production: webhook / EventListener / GitOps reconcile on production designation change → resolve registry → canary → promote.
 
 ## License
 
-Dataset terms are described in the Roboflow export files under `images/` (CC BY 4.0 for the linked Roboflow version). Add or adjust a top-level license for your own code and artifacts if you distribute them beyond this demo.
+Dataset terms: Roboflow export files under `images/` (CC BY 4.0 for the linked version). Add a top-level license for your own code if you redistribute beyond this demo.

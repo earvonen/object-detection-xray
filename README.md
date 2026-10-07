@@ -33,7 +33,7 @@ Jupyter workbench
 - OpenShift AI with **MLflow**, **Model Registry**, **Data Science Pipelines**, and **single-model serving**
 - KServe in **Advanced / Serverless** mode (required for `canaryTrafficPercent`)
 - S3-compatible object storage + project Connection
-- GPU workbench recommended for training (CPU works; use short `DEMO_EPOCHS`)
+- Workbench image: **Jupyter | Minimal | CUDA | Python 3.12** (attach a GPU when training live; CPU + short `DEMO_EPOCHS` or warm-start also works)
 
 Environment variables: [`docs/env.md`](docs/env.md).
 
@@ -56,9 +56,20 @@ source .deploy/env.cluster.sh
 
 ### Workbench packages
 
+In OpenShift AI, create the workbench with:
+
+| Setting | Value |
+|---------|--------|
+| Image | **Jupyter \| Minimal \| CUDA \| Python 3.12** |
+| Accelerator | GPU if running `notebooks/01_train_track.ipynb` live |
+
+Then from the repo root in the workbench terminal:
+
 ```bash
 bash install-dependencies.sh
 ```
+
+That image’s Python 3.12 can install OpenVINO as well as the ONNX stack. Local Python 3.13+ often cannot; the script skips OpenVINO there and the ONNX → KServe path still works.
 
 Clone or mount this repo at the workbench root so paths like `images/data.yaml` resolve.
 

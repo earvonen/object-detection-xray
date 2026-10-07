@@ -3,6 +3,11 @@
 Copy these into your OpenShift AI workbench, pipeline run, or local shell.
 Names match OpenShift AI data-connection conventions where possible.
 
+## Recommended workbench
+
+**Jupyter | Minimal | CUDA | Python 3.12** in project `object-detection-xray`.
+Attach a GPU when training; not required for register / promote / infer-only steps.
+
 ## MLflow (experiments only)
 
 | Variable | Example | Purpose |

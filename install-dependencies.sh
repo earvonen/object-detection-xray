@@ -3,8 +3,7 @@
 #
 # Prefer the OpenShift AI workbench image:
 #   Jupyter | Minimal | CUDA | Python 3.12
-# OpenVINO has no wheels for bleeding-edge Pythons (e.g. 3.14); it is optional
-# for the ONNX → KServe path.
+# OpenVINO / awscli are optional; failures there do not block the ONNX lifecycle demo.
 set -euo pipefail
 
 PYTHON="${PYTHON:-python3}"
@@ -17,13 +16,13 @@ PY_VER="$("$PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.versio
 echo "Using $($PYTHON -c 'import sys; print(sys.executable)') (Python ${PY_VER})"
 
 # Core packages required for the MLflow → Model Registry → ONNX/KServe demo.
+# S3 uploads in notebooks use boto3 (not the AWS CLI).
 "$PYTHON" -m pip install \
   "numpy>=2.0.0,<3" \
   "torch>=2.4" \
   ultralytics \
   onnx \
   onnxruntime \
-  awscli \
   boto3 \
   mlflow \
   requests \
@@ -31,8 +30,15 @@ echo "Using $($PYTHON -c 'import sys; print(sys.executable)') (Python ${PY_VER})
   pandas \
   "kfp>=2.0.0,<3"
 
+# Optional: AWS CLI for upload-best-onnx-to-s3.sh. Often unavailable in locked-down
+# workbench pip indexes; notebooks/03 use boto3 instead.
+if "$PYTHON" -m pip install awscli; then
+  echo "awscli installed."
+else
+  echo "warning: awscli not installed (use notebooks/03 boto3 upload, or install awscli another way)." >&2
+fi
+
 # OpenVINO is only needed for optional IR export in export.ipynb / legacy paths.
-# Skip cleanly when no matching wheel exists (common on Python 3.13+).
 if "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info < (3, 13) else 1)'; then
   if "$PYTHON" -m pip install "openvino>=2024.5"; then
     echo "OpenVINO installed."
@@ -41,8 +47,7 @@ if "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info < (3, 13) el
   fi
 else
   echo "warning: Python ${PY_VER} has no OpenVINO wheels on PyPI — skipping openvino." >&2
-  echo "         Use an OpenShift AI workbench with Python 3.11/3.12, or set PYTHON=/path/to/python3.12" >&2
-  echo "         The ONNX lifecycle demo does not require OpenVINO." >&2
+  echo "         Use Jupyter | Minimal | CUDA | Python 3.12 on OpenShift AI for full deps." >&2
 fi
 
 echo "Done."

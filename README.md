@@ -54,22 +54,18 @@ export AWS_S3_ENDPOINT=... AWS_DEFAULT_REGION=us-east-1 AWS_S3_BUCKET=models
 source .deploy/env.cluster.sh
 ```
 
-### Workbench packages
+### Workbench image
 
-In OpenShift AI, create the workbench with:
-
-| Setting | Value |
-|---------|--------|
-| Image | **Jupyter \| Minimal \| CUDA \| Python 3.12** |
-| Accelerator | GPU if running `notebooks/01_train_track.ipynb` live |
-
-Then from the repo root in the workbench terminal:
+**Recommended:** build a custom image that starts from **Jupyter | Minimal | CUDA | Python 3.12** (`minimal-gpu:3.5`) and runs [`install-dependencies.sh`](install-dependencies.sh):
 
 ```bash
-bash install-dependencies.sh
+./deploy.sh --build-workbench
+# or manually — see openshift/workbench/README.md
 ```
 
-That image’s Python 3.12 can install OpenVINO as well as the ONNX stack. Local Python 3.13+ often cannot; the script skips OpenVINO there and the ONNX → KServe path still works.
+Then create a workbench in project `object-detection-xray` using **X-ray detector | Minimal CUDA | Python 3.12** (`xray-workbench:latest`) and attach a GPU if training.
+
+**Alternative:** use the stock **Jupyter | Minimal | CUDA | Python 3.12** image and run `bash install-dependencies.sh` once in the workbench terminal.
 
 Clone or mount this repo at the workbench root so paths like `images/data.yaml` resolve.
 

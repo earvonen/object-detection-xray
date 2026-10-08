@@ -1,0 +1,52 @@
+# Build a custom workbench image FROM Jupyter | Minimal | CUDA | Python 3.12
+# (ImageStream minimal-gpu in redhat-ods-applications) and RUN install-dependencies.sh.
+#
+# Prerequisites:
+#   - Namespace object-detection-xray exists (./deploy.sh)
+#   - oc apply -f openshift/workbench/imagestream.yaml
+#   - oc apply -f openshift/workbench/buildconfig.yaml
+#
+# Start a build from the repo root (sends Containerfile + install-dependencies.sh):
+#   oc start-build xray-workbench -n object-detection-xray \
+#     --from-dir=. \
+#     --follow
+#
+# Then create a workbench in project object-detection-xray and select
+# "X-ray detector | Minimal CUDA | Python 3.12" (or image xray-workbench:latest).
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: xray-workbench
+  namespace: object-detection-xray
+  labels:
+    app.kubernetes.io/name: xray-workbench
+    app.kubernetes.io/part-of: xray-lifecycle-demo
+  annotations:
+    description: Bake install-dependencies.sh into Jupyter Minimal CUDA Python 3.12
+spec:
+  successfulBuildsHistoryLimit: 3
+  failedBuildsHistoryLimit: 3
+  output:
+    to:
+      kind: ImageStreamTag
+      name: xray-workbench:latest
+  source:
+    type: Binary
+    # Binary upload must include:
+    #   openshift/workbench/Containerfile
+    #   install-dependencies.sh
+    # Use: oc start-build ... --from-dir=.  (repo root)
+    contextDir: ""
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: openshift/workbench/Containerfile
+      from:
+        kind: ImageStreamTag
+        namespace: redhat-ods-applications
+        name: minimal-gpu:3.5
+      env:
+        - name: PIP_DISABLE_PIP_VERSION_CHECK
+          value: "1"
+  triggers: []
+  runPolicy: Serial

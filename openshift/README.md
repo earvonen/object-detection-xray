@@ -33,3 +33,7 @@ oc get inferenceservice xray-detector -n <namespace>
 Prefer the Data Science Pipeline (`pipelines/promote_deploy_canary.py`), which patches the live InferenceService after resolving `stage=prod` from the OpenShift AI Model Registry.
 
 Tag routing annotation `serving.kserve.io/enable-tag-routing: "true"` exposes `latest-` / `prev-` routes for explicit canary validation.
+
+## Custom workbench image
+
+See [`workbench/`](workbench/) for a BuildConfig that layers `install-dependencies.sh` onto **Jupyter | Minimal | CUDA | Python 3.12** (`minimal-gpu:3.5`).

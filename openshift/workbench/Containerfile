@@ -1,0 +1,18 @@
+# Custom OpenShift AI workbench: Jupyter | Minimal | CUDA | Python 3.12
+# plus packages from install-dependencies.sh (MLflow, Ultralytics, ONNX, etc.).
+#
+# The BuildConfig dockerStrategy.from overrides this FROM with the cluster
+# ImageStreamTag redhat-ods-applications/minimal-gpu:3.5.
+FROM image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/minimal-gpu:3.5
+
+WORKDIR /opt/app-root/src
+
+# Workbench images run as UID 1001; keep pip installs in /opt/app-root.
+USER 1001
+COPY --chown=1001:0 install-dependencies.sh /tmp/install-dependencies.sh
+RUN bash /tmp/install-dependencies.sh \
+    && rm -f /tmp/install-dependencies.sh
+
+# Ensure Jupyter still starts as the standard notebook user.
+USER 1001
+WORKDIR /opt/app-root/src

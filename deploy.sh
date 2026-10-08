@@ -19,9 +19,11 @@
 #   ./deploy.sh
 #
 # Flags:
-#   --skip-isvc     Do not create/update the InferenceService
-#   --skip-pipeline Do not compile the KFP pipeline YAML
-#   --dry-run       Print actions without applying
+#   --skip-isvc       Do not create/update the InferenceService
+#   --skip-pipeline   Do not compile the KFP pipeline YAML
+#   --build-workbench Apply workbench ImageStream/BuildConfig and start a build
+#                     (layers install-dependencies.sh on Minimal CUDA Python 3.12)
+#   --dry-run         Print actions without applying
 
 set -euo pipefail
 
@@ -34,12 +36,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="${SCRIPT_DIR}/.deploy"
 SKIP_ISVC=0
 SKIP_PIPELINE=0
+BUILD_WORKBENCH=0
 DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-isvc) SKIP_ISVC=1 ;;
     --skip-pipeline) SKIP_PIPELINE=1 ;;
+    --build-workbench) BUILD_WORKBENCH=1 ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help)
       awk 'NR==1{next} /^[^#]/{exit} {sub(/^# ?/,""); print}' "$0"
@@ -262,6 +266,26 @@ else
   warn "or let pipelines/promote_deploy_canary.py patch a pre-created ISVC after stage=prod"
 fi
 
+# --- Optional custom workbench image (Minimal CUDA Py3.12 + install-dependencies.sh) ---
+if [[ "$BUILD_WORKBENCH" -eq 1 ]]; then
+  log "applying workbench ImageStream + BuildConfig"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "dry-run: would apply openshift/workbench/*.yaml and start-build"
+  else
+    # Allow builder SA to pull the RHOAI base ImageStream if needed.
+    if oc get ns redhat-ods-applications >/dev/null 2>&1; then
+      oc policy add-role-to-user system:image-puller \
+        "system:serviceaccount:${NAMESPACE}:builder" \
+        -n redhat-ods-applications >/dev/null 2>&1 || true
+    fi
+    oc apply -f "${SCRIPT_DIR}/openshift/workbench/imagestream.yaml"
+    oc apply -f "${SCRIPT_DIR}/openshift/workbench/buildconfig.yaml"
+    log "starting binary build xray-workbench (this can take several minutes)"
+    oc start-build xray-workbench -n "${NAMESPACE}" --from-dir="${SCRIPT_DIR}" --follow
+    log "workbench image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/xray-workbench:latest"
+  fi
+fi
+
 # --- Compile pipeline YAML for DSP import ---
 PIPELINE_OUT="${OUT_DIR}/promote_deploy_canary.yaml"
 if [[ "$SKIP_PIPELINE" -eq 1 ]]; then
@@ -307,11 +331,20 @@ log "done"
 echo
 echo "Next steps:"
 echo "  1. In OpenShift AI, open (or create) a workbench in project ${NAMESPACE}"
+if [[ "$BUILD_WORKBENCH" -eq 1 ]]; then
+  echo "     Image: X-ray detector | Minimal CUDA | Python 3.12 (xray-workbench:latest)"
+else
+  echo "     Image: Jupyter | Minimal | CUDA | Python 3.12  (or ./deploy.sh --build-workbench)"
+fi
 echo "  2. source ${ENV_OUT}  # plus MLFLOW_TRACKING_URI / MODEL_REGISTRY_URL / AWS_*"
-echo "  3. bash install-dependencies.sh"
-echo "  4. Run notebooks/01 → 04, then:"
+if [[ "$BUILD_WORKBENCH" -eq 0 ]]; then
+  echo "  3. bash install-dependencies.sh   # skip if using xray-workbench image"
+  echo "  4. Run notebooks/01 → 04, then:"
+else
+  echo "  3. Run notebooks/01 → 04, then:"
+fi
 echo "       python pipelines/promote_deploy_canary.py --action leave-canary"
-echo "  5. Optional: import ${PIPELINE_OUT} into Data Science Pipelines"
+echo "  Optional: import ${PIPELINE_OUT} into Data Science Pipelines"
 echo
 if [[ "$DRY_RUN" -eq 0 ]]; then
   oc get ns "${NAMESPACE}" -o name

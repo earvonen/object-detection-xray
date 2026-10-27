@@ -46,6 +46,12 @@ class ModelRegistryClient:
         if not self.base_url:
             raise ModelRegistryError("MODEL_REGISTRY_URL is not set")
         self.token = token if token is not None else _default_token()
+        if not self.token:
+            raise ModelRegistryError(
+                "No registry Bearer token. Set MODEL_REGISTRY_TOKEN (e.g. oc whoami -t) "
+                "or run in a workbench with a ServiceAccount token mounted, and bind that "
+                "SA via openshift/rbac-workbench-model-registry.yaml."
+            )
         if verify_ssl is None:
             verify_ssl = os.environ.get("MODEL_REGISTRY_VERIFY_SSL", "true").lower() not in {
                 "0",

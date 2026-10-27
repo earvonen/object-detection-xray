@@ -112,5 +112,8 @@ Writes rendered manifests and `env.cluster.sh` under `.deploy/` (gitignored).
 | `DEMO_MODEL` | `yolov8n.pt` | Base checkpoint |
 | `DEMO_BATCH` | `8` | Train batch size (lower if the 16Gi workbench OOMs; try `4`) |
 | `DEMO_WORKERS` | `2` | DataLoader workers (Ultralytics default `8` often blows host RAM) |
-| `SELECTED_RUN_ID` | *(set after selection)* | MLflow run chosen for export/register |
-| `SELECTED_VERSION_ID` | *(set after register)* | Model Registry version id to promote |
+| `SELECTED_RUN_ID` | *(from notebook 02)* | MLflow run chosen for export/register |
+| `SELECTED_VERSION_ID` | *(from notebook 03)* | Model Registry version id to promote |
+
+Notebook kernels do **not** share `os.environ`. Notebooks 02–04 persist those
+`SELECTED_*` values in gitignored `.demo_state.json` (env still overrides when set).

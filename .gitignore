@@ -1,5 +1,6 @@
 .venv/
 .deploy/
+.demo_state.json
 __pycache__/
 *.py[cod]
 .ipynb_checkpoints/

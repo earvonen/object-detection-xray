@@ -15,22 +15,28 @@ oc apply -f openshift/workbench/buildconfig.yaml
 oc start-build xray-workbench -n object-detection-xray --from-dir=. --follow
 ```
 
-## Use in OpenShift AI
+## Workbench Notebook (GitOps)
 
-1. Open project **object-detection-xray**
-2. Create a workbench
-3. Select image **X-ray detector | Minimal CUDA | Python 3.12** (`xray-workbench:latest`)
-4. Set **Accelerator** to an NVIDIA GPU (required while the image recommends GPU — otherwise Create stays disabled)
-5. Fill name / storage as usual → Create
+PVC + Notebook CR live in this directory and are applied by `./deploy.sh` (unless `--skip-notebook`):
 
-If Create stays gray after selecting this image, re-apply tag metadata (builds can drop it):
+- [`notebook-pvc.yaml`](notebook-pvc.yaml)
+- [`notebook.yaml`](notebook.yaml) — includes `opendatahub.io/mlflow-instance=mlflow` and the S3 Connection name
+
+```bash
+# Standalone (after image build / Connection exist):
+./openshift/workbench/apply-notebook.sh
+
+# Or via deploy (sources .env when present):
+./deploy.sh --build-workbench --skip-isvc
+```
+
+Dashboard alternative: create the workbench manually and select **X-ray detector | Minimal CUDA | Python 3.12**. If Create stays gray, re-apply tag metadata:
 
 ```bash
 bash openshift/workbench/annotate-imagestream.sh
-# then hard-refresh the dashboard
 ```
 
-You can skip `bash install-dependencies.sh` in the workbench for packages already in the image (still clone/mount this repo for notebooks and data).
+Skip `bash install-dependencies.sh` when using the custom image (still clone/mount this repo for notebooks and data).
 
 ## Base image pin
 

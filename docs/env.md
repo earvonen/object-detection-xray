@@ -10,13 +10,34 @@ Attach a GPU when training; not required for register / promote / infer-only ste
 
 ## MLflow (experiments only)
 
+OpenShift AI MLflow uses Kubernetes auth (`--app-name=kubernetes-auth`). Do **not** point
+the workbench at the public URI with a bare `MLFLOW_TRACKING_URI` and no auth — the server
+returns `UNAUTHENTICATED: Missing Authorization header or X-Forwarded-Access-Token`.
+
+**Preferred (workbench):** annotate the Notebook so the platform injects URI + auth + RBAC:
+
+```bash
+oc annotate notebook <workbench-name> -n <project> \
+  opendatahub.io/mlflow-instance=mlflow --overwrite
+# Then stop/start the workbench so env is injected.
+```
+
+That sets `MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_AUTH=kubernetes-namespaced`, and
+`MLFLOW_K8S_INTEGRATION=true`, and creates RoleBinding `*-mlflow` for the workbench SA.
+(Dashboard-managed workbenches usually get this annotation automatically.)
+
 | Variable | Example | Purpose |
 |----------|---------|---------|
-| `MLFLOW_TRACKING_URI` | `https://mlflow-…` | Operator-managed MLflow tracking server |
+| `MLFLOW_TRACKING_URI` | `https://rh-ai…/mlflow` | Tracking server (injected by annotation, or set manually) |
+| `MLFLOW_TRACKING_AUTH` | `kubernetes-namespaced` | SA token + `X-MLFLOW-WORKSPACE` (injected) |
+| `MLFLOW_K8S_INTEGRATION` | `true` | Enable K8s credential provider (injected) |
 | `MLFLOW_EXPERIMENT_NAME` | `xray-detector` | Experiment used by the notebooks (default: `xray-detector`) |
-| `MLFLOW_TRACKING_TOKEN` | *(optional)* | Bearer token if the tracking server requires auth |
+| `MLFLOW_TRACKING_TOKEN` / `MLFLOW_WORKSPACE` | *(manual only)* | Alternative to K8s auth: `oc whoami -t` + project name |
 
 ## S3-compatible object storage
+
+Do not invent or deploy an object store for this demo. Ask the human operator for an existing
+S3-compatible endpoint (or OpenShift AI Connection) and use the variables below once provided.
 
 | Variable | Example | Purpose |
 |----------|---------|---------|

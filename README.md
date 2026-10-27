@@ -54,6 +54,8 @@ export AWS_S3_ENDPOINT=... AWS_DEFAULT_REGION=us-east-1 AWS_S3_BUCKET=models
 source .deploy/env.cluster.sh
 ```
 
+**S3 / object storage (agents and operators):** do **not** stand up MinIO or any other object store yourself. Ask the user how to proceed (external bucket, existing Connection, or defer serving). Only create the data-connection Secret after they supply `AWS_*` (or an equivalent Connection). See [`.cursor/rules/s3-ask-user.mdc`](.cursor/rules/s3-ask-user.mdc).
+
 ### Workbench image
 
 **Recommended:** build a custom image that starts from **Jupyter | Minimal | CUDA | Python 3.12** (`minimal-gpu:3.5`) and runs [`install-dependencies.sh`](install-dependencies.sh):

@@ -17,11 +17,38 @@ def configure_tracking(experiment_name: Optional[str] = None) -> str:
     uri = os.environ.get("MLFLOW_TRACKING_URI")
     if uri:
         mlflow.set_tracking_uri(uri)
+    # OpenShift AI MLflow (kubernetes-auth): prefer platform-injected auth.
+    # Annotation opendatahub.io/mlflow-instance=mlflow sets these on the workbench.
+    if os.environ.get("MLFLOW_K8S_INTEGRATION", "").lower() in ("1", "true", "yes"):
+        os.environ.setdefault("MLFLOW_TRACKING_AUTH", "kubernetes-namespaced")
     token = os.environ.get("MLFLOW_TRACKING_TOKEN")
     if token:
         os.environ.setdefault("MLFLOW_TRACKING_TOKEN", token)
     name = experiment_name or os.environ.get("MLFLOW_EXPERIMENT_NAME", "xray-detector")
-    mlflow.set_experiment(name)
+    try:
+        mlflow.set_experiment(name)
+    except mlflow.exceptions.MlflowException as exc:
+        msg = str(exc).lower()
+        if "unauthenticated" in msg or "authorization" in msg or "x-forwarded-access-token" in msg:
+            raise mlflow.exceptions.MlflowException(
+                f"{exc}\n"
+                "MLflow requires Kubernetes auth on this cluster. On the workbench Notebook, set "
+                "annotation opendatahub.io/mlflow-instance=mlflow and restart, or export "
+                "MLFLOW_TRACKING_AUTH=kubernetes-namespaced (plus MLFLOW_TRACKING_URI). "
+                "See docs/env.md."
+            ) from exc
+        if "deleted experiment" not in msg:
+            raise
+        # Soft-deleted in the UI: restore so the demo name can be reused.
+        from mlflow.entities import ViewType
+
+        client = MlflowClient()
+        deleted = client.search_experiments(view_type=ViewType.DELETED_ONLY)
+        match = next((e for e in deleted if e.name == name), None)
+        if match is None:
+            raise
+        client.restore_experiment(match.experiment_id)
+        mlflow.set_experiment(name)
     return name
 
 

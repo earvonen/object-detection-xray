@@ -24,7 +24,7 @@ echo "Using $($PYTHON -c 'import sys; print(sys.executable)') (Python ${PY_VER})
   onnx \
   onnxruntime \
   boto3 \
-  mlflow \
+  "mlflow[kubernetes]" \
   requests \
   pyyaml \
   pandas \

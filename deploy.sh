@@ -10,6 +10,10 @@
 #   - Optional: AWS_* env vars to create an S3 data-connection Secret
 #   - Optional: STORAGE_URI or STORAGE_KEY+STORAGE_PATH to create the InferenceService
 #
+# S3 policy: do NOT deploy MinIO or another object store from this script or ad-hoc
+# cluster work. If AWS_* are unset, skip the Connection and ask the user how they
+# want object storage handled.
+#
 # Usage:
 #   oc login ...
 #   export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_S3_ENDPOINT=...
@@ -336,7 +340,7 @@ if [[ "$BUILD_WORKBENCH" -eq 1 ]]; then
 else
   echo "     Image: Jupyter | Minimal | CUDA | Python 3.12  (or ./deploy.sh --build-workbench)"
 fi
-echo "  2. source ${ENV_OUT}  # plus MLFLOW_TRACKING_URI / MODEL_REGISTRY_URL / AWS_*"
+echo "  2. Ensure workbench has annotation opendatahub.io/mlflow-instance=mlflow (dashboard or oc annotate), then source ${ENV_OUT}  # plus MODEL_REGISTRY_URL / AWS_*"
 if [[ "$BUILD_WORKBENCH" -eq 0 ]]; then
   echo "  3. bash install-dependencies.sh   # skip if using xray-workbench image"
   echo "  4. Run notebooks/01 → 04, then:"

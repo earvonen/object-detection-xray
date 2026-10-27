@@ -144,6 +144,15 @@ subjects:
 EOF
 apply_yaml "${OUT_DIR}/sa-rbac.yaml"
 
+# Workbench / pipeline SA → Model Registry kube-rbac-proxy (get services/<registry>).
+# Only apply when the registry Role exists in rhoai-model-registries.
+if oc get role registry-user-xray-model-registry -n rhoai-model-registries >/dev/null 2>&1; then
+  log "binding workbench/pipeline SAs to Model Registry Role registry-user-xray-model-registry"
+  apply_yaml "${SCRIPT_DIR}/openshift/rbac-workbench-model-registry.yaml"
+else
+  warn "Role registry-user-xray-model-registry not found in rhoai-model-registries — skip workbench MR RBAC"
+fi
+
 # Bind the same Role to common DSP runner SAs if they already exist in the project.
 for sa in pipeline ds-pipeline-pipelines-definition pipeline-runner; do
   if oc get sa "$sa" -n "$NAMESPACE" >/dev/null 2>&1; then

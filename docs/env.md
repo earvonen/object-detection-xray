@@ -62,10 +62,16 @@ s3://$AWS_S3_BUCKET/$S3_KEY_PREFIX/<mlflow_run_id>/model.onnx
 
 ## OpenShift AI Model Registry (production boundary)
 
+The HTTPS route sits behind **kube-rbac-proxy**. Calls without a Bearer token get
+`401 Unauthorized`. In a workbench, `ModelRegistryClient` uses the mounted
+ServiceAccount token automatically; `./deploy.sh` (or
+`openshift/rbac-workbench-model-registry.yaml`) must bind that SA to
+`registry-user-xray-model-registry` in `rhoai-model-registries`.
+
 | Variable | Example | Purpose |
 |----------|---------|---------|
-| `MODEL_REGISTRY_URL` | `http://rhoai-registry-…:8080` | Registry REST base (in-cluster or route) |
-| `MODEL_REGISTRY_TOKEN` | *(optional)* | Bearer token for authenticated routes |
+| `MODEL_REGISTRY_URL` | `https://xray-model-registry-rest.…` | Registry REST base (route or in-cluster svc) |
+| `MODEL_REGISTRY_TOKEN` | *(optional)* | Override Bearer token (`oc whoami -t`); else SA token |
 | `REGISTERED_MODEL_NAME` | `xray-detector` | Logical model name in the registry |
 | `MODEL_REGISTRY_VERIFY_SSL` | `true` | Set `false` only for lab/self-signed TLS |
 

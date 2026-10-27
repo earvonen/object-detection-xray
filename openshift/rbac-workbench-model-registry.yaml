@@ -1,0 +1,22 @@
+# Allow the demo workbench ServiceAccount through kube-rbac-proxy on the
+# Model Registry route (authorization checks get on services/xray-model-registry).
+# Do not patch the operator-managed xray-model-registry-users RoleBinding — it
+# reconciles back to only the Group subject.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: xray-workbench-model-registry
+  namespace: rhoai-model-registries
+  labels:
+    app.kubernetes.io/part-of: object-detection-xray
+subjects:
+  - kind: ServiceAccount
+    name: object-detection-workbench
+    namespace: object-detection-xray
+  - kind: ServiceAccount
+    name: xray-pipeline
+    namespace: object-detection-xray
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: registry-user-xray-model-registry

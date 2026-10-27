@@ -7,9 +7,27 @@ on a model version (not an MLflow Model Registry alias).
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 import requests
+
+_SA_TOKEN_PATH = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
+
+
+def _default_token() -> Optional[str]:
+    env = os.environ.get("MODEL_REGISTRY_TOKEN")
+    if env:
+        return env
+    # Workbench / in-cluster: kube-rbac-proxy on the registry route expects a
+    # Bearer token; the mounted ServiceAccount token works once RBAC grants
+    # get on services/<registry> in the registry namespace.
+    if _SA_TOKEN_PATH.is_file():
+        try:
+            return _SA_TOKEN_PATH.read_text().strip() or None
+        except OSError:
+            return None
+    return None
 
 
 class ModelRegistryError(RuntimeError):
@@ -27,7 +45,7 @@ class ModelRegistryClient:
         self.base_url = (base_url or os.environ.get("MODEL_REGISTRY_URL", "")).rstrip("/")
         if not self.base_url:
             raise ModelRegistryError("MODEL_REGISTRY_URL is not set")
-        self.token = token if token is not None else os.environ.get("MODEL_REGISTRY_TOKEN")
+        self.token = token if token is not None else _default_token()
         if verify_ssl is None:
             verify_ssl = os.environ.get("MODEL_REGISTRY_VERIFY_SSL", "true").lower() not in {
                 "0",
@@ -55,7 +73,13 @@ class ModelRegistryClient:
             **kwargs,
         )
         if resp.status_code >= 400:
-            raise ModelRegistryError(f"{method} {path} -> {resp.status_code}: {resp.text}")
+            hint = ""
+            if resp.status_code in (401, 403):
+                hint = (
+                    " — registry route uses kube-rbac-proxy; set MODEL_REGISTRY_TOKEN "
+                    "or ensure the workbench SA is bound via openshift/rbac-workbench-model-registry.yaml"
+                )
+            raise ModelRegistryError(f"{method} {path} -> {resp.status_code}: {resp.text}{hint}")
         if resp.status_code == 204 or not resp.content:
             return None
         return resp.json()

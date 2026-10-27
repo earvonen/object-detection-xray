@@ -1,5 +1,7 @@
 # Baseline InferenceService for the X-ray detector (ONNX on S3).
-# Requires OpenShift AI single-model serving in Advanced / Serverless (Knative) mode.
+# Requires:
+#   - KnativeServing installed (openshift/knative-serving.yaml)
+#   - ServingRuntime kserve-ovms (openshift/servingruntime-ovms.yaml)
 #
 # Apply via:
 #   ./openshift/apply-inferenceservice.sh
@@ -24,6 +26,7 @@ spec:
     model:
       modelFormat:
         name: onnx
+      runtime: kserve-ovms
       protocolVersion: v2
       storage:
         key: __STORAGE_KEY__

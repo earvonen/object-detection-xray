@@ -32,6 +32,18 @@ sed \
   -e "s|__STORAGE_PATH__|${STORAGE_PATH}|g" \
   "${MANIFEST}" >"${TMP}"
 
+# ServingRuntime (OVMS) must exist in the project for ONNX.
+if [[ -f "${SCRIPT_DIR}/servingruntime-ovms.yaml" ]]; then
+  echo "Applying ServingRuntime kserve-ovms"
+  sed "s|namespace: object-detection-xray|namespace: ${NAMESPACE}|g" \
+    "${SCRIPT_DIR}/servingruntime-ovms.yaml" | oc apply -f -
+fi
+
+if ! oc get knativeserving knative-serving -n knative-serving >/dev/null 2>&1; then
+  echo "warning: KnativeServing not found — Serverless ISVCs will fail." >&2
+  echo "  Apply openshift/knative-serving.yaml (cluster-admin) first." >&2
+fi
+
 echo "Applying InferenceService xray-detector in ${NAMESPACE}"
 echo "  storage.key=${STORAGE_KEY}"
 echo "  storage.path=${STORAGE_PATH}"

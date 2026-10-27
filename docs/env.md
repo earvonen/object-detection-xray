@@ -110,5 +110,7 @@ Writes rendered manifests and `env.cluster.sh` under `.deploy/` (gitignored).
 | `DEMO_EPOCHS` | `3` | Short training runs for live demos |
 | `DEMO_IMGSZ` | `640` | Training image size |
 | `DEMO_MODEL` | `yolov8n.pt` | Base checkpoint |
+| `DEMO_BATCH` | `8` | Train batch size (lower if the 16Gi workbench OOMs; try `4`) |
+| `DEMO_WORKERS` | `2` | DataLoader workers (Ultralytics default `8` often blows host RAM) |
 | `SELECTED_RUN_ID` | *(set after selection)* | MLflow run chosen for export/register |
 | `SELECTED_VERSION_ID` | *(set after register)* | Model Registry version id to promote |

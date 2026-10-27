@@ -10,7 +10,8 @@
 | Notebook 03 `Set SELECTED_RUN_ID` | Env not shared across kernels | Re-run 02 selection (writes `.demo_state.json`); pull `src/demo_state.py` |
 | Model Registry `401 Unauthorized` | No Bearer / stale client | Ensure MR RoleBinding for workbench SA; restart kernel; pull updated `registry_client.py` |
 | Model Registry `403 Forbidden` | SA lacks `get services/<registry>` | Apply `openshift/rbac-workbench-model-registry.yaml` (separate RB, not operator binding) |
-| Connection empty / no `AWS_*` in pod | `opendatahub.io/connections` not set or workbench not restarted | Set annotation to Connection Secret name; stop/start Notebook |
+| Connection empty / no `AWS_*` in pod | `opendatahub.io/connections` not set or workbench not restarted | Set annotation to `namespace/secret-name` (webhook rejects bare secret name); stop/start Notebook |
+| Notebook admission: invalid secret reference format | Connection annotation missing namespace | Use `object-detection-xray/aws-connection-xray-models` |
 | Create workbench grayed out | ImageStream missing GPU recommend annotations | `bash openshift/workbench/annotate-imagestream.sh` |
 
 ## Useful probes

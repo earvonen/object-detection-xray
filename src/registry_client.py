@@ -104,13 +104,13 @@ class ModelRegistryClient:
     def get_registered_model_by_name(self, name: str) -> Optional[dict[str, Any]]:
         models = self.list_registered_models(name=name)
         for model in models:
-            if model.get("name") == name:
+            if model.get("name") == name and model.get("state", "LIVE") != "ARCHIVED":
                 return model
         # Some servers ignore the name filter; scan all.
         if not models:
             models = self.list_registered_models()
         for model in models:
-            if model.get("name") == name:
+            if model.get("name") == name and model.get("state", "LIVE") != "ARCHIVED":
                 return model
         return None
 

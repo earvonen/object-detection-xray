@@ -19,7 +19,8 @@ metadata:
     notebooks.opendatahub.io/last-image-selection: xray-workbench:latest
     opendatahub.io/image-display-name: "X-ray detector | Minimal CUDA | Python 3.12"
     opendatahub.io/mlflow-instance: mlflow
-    opendatahub.io/connections: __CONNECTION_NAME__
+    # Format required by connection-notebook webhook: namespace/secret-name
+    opendatahub.io/connections: __NAMESPACE__/__CONNECTION_NAME__
     opendatahub.io/hardware-profile-name: gpu-profile
     opendatahub.io/hardware-profile-namespace: redhat-ods-applications
     openshift.io/display-name: object-detection-workbench

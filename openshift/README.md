@@ -11,15 +11,18 @@ Serverless (Knative) InferenceService examples for the X-ray detector lifecycle 
 
 ## Apply baseline
 
-1. Copy `inferenceservice-xray-detector.yaml` and replace:
-   - `REPLACE_ME_NAMESPACE`
-   - `REPLACE_ME_STORAGE_URI` (directory or object prefix containing the ONNX model)
-2. Optionally switch to Connection-based `storage.key` / `storage.path` (commented in the file).
-3. Apply:
+For the lifecycle demo, prefer:
 
 ```bash
-oc apply -f openshift/inferenceservice-xray-detector.yaml
-oc get inferenceservice xray-detector -n <namespace>
+# After notebook 03 uploaded ONNX — seeds …/baseline and creates the ISVC on that path.
+# Do not point the ISVC at the candidate run_id you will canary.
+./openshift/ensure-baseline-isvc.sh
+```
+
+Or manually:
+
+```bash
+STORAGE_PATH=object-detection/xray-detector/baseline ./openshift/apply-inferenceservice.sh
 ```
 
 ## Canary / promote / rollback

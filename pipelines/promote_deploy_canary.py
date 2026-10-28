@@ -39,9 +39,11 @@ if str(REPO_ROOT) not in sys.path:
 from src.kserve_utils import (  # noqa: E402
     default_namespace,
     default_service_name,
+    get_inference_service_storage_path,
     patch_inference_service,
 )
 from src.registry_client import ModelRegistryClient  # noqa: E402
+from src.s3_utils import refresh_baseline_from, storage_path_from_uri  # noqa: E402
 
 
 class ResolveResult(NamedTuple):
@@ -72,12 +74,22 @@ def deploy_canary(
     service_name: str,
     canary_percent: int,
 ) -> str:
+    new_path = storage_path_from_uri(resolved.storage_path or resolved.uri or "")
+    current = get_inference_service_storage_path(service_name, namespace)
+    if current and new_path and current.rstrip("/") == new_path.rstrip("/"):
+        raise SystemExit(
+            f"Canary storage.path matches the live InferenceService ({current}).\n"
+            "Knative will not create a second revision/pod.\n"
+            "Serve a different baseline first, e.g.:\n"
+            "  ./openshift/ensure-baseline-isvc.sh --force\n"
+            "then re-run promote/canary so stage=prod points at the new run's path."
+        )
     return patch_inference_service(
         name=service_name,
         namespace=namespace,
         storage_uri=resolved.uri if not resolved.storage_key else None,
         storage_key=resolved.storage_key or None,
-        storage_path=resolved.storage_path or None,
+        storage_path=new_path or resolved.storage_path or None,
         canary_traffic_percent=canary_percent,
         remove_canary=False,
         enable_tag_routing=True,
@@ -107,15 +119,26 @@ def promote_or_rollback(
     if action == "leave-canary":
         return "left in canary state"
     if action == "promote":
-        return patch_inference_service(
+        out = patch_inference_service(
             name=service_name,
             namespace=namespace,
             storage_uri=resolved.uri if not resolved.storage_key else None,
             storage_key=resolved.storage_key or None,
-            storage_path=resolved.storage_path or None,
+            storage_path=storage_path_from_uri(resolved.storage_path or resolved.uri or "")
+            or resolved.storage_path
+            or None,
             remove_canary=True,
             enable_tag_routing=True,
         )
+        # Keep S3 baseline in sync so the next namespace bootstrap has a real "prev".
+        try:
+            src = storage_path_from_uri(resolved.storage_path or resolved.uri or "")
+            if src:
+                baseline_uri = refresh_baseline_from(src)
+                print(f"refreshed S3 baseline from prod → {baseline_uri}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"warning: could not refresh S3 baseline: {exc}")
+        return out
     if action == "rollback":
         return patch_inference_service(
             name=service_name,

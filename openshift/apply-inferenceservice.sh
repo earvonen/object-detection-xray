@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Render and oc-apply openshift/inferenceservice-xray-detector.yaml
 #
-# Fill these (or export beforehand). STORAGE_PATH is the Connection-relative
-# prefix from notebook 03, e.g. object-detection/xray-detector/<mlflow_run_id>
+# Prefer ./openshift/ensure-baseline-isvc.sh for the demo: it seeds
+# object-detection/xray-detector/baseline and applies this script so canary
+# can later roll a *different* path (new Knative revision + second pod).
+#
+# STORAGE_PATH is the Connection-relative OVMS model-repo prefix (parent of 1/).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,11 +13,12 @@ MANIFEST="${SCRIPT_DIR}/inferenceservice-xray-detector.yaml"
 
 export NAMESPACE="${NAMESPACE:-object-detection-xray}"
 export STORAGE_KEY="${STORAGE_KEY:-aws-connection-xray-models}"
-export STORAGE_PATH="${STORAGE_PATH:-object-detection/xray-detector/REPLACE_ME_RUN_ID}"
+export STORAGE_PATH="${STORAGE_PATH:-object-detection/xray-detector/baseline}"
 
 if [[ "${STORAGE_PATH}" == *REPLACE_ME* ]]; then
-  echo "error: set STORAGE_PATH to the ONNX prefix from notebook 03" >&2
-  echo "  e.g. STORAGE_PATH=object-detection/xray-detector/<run_id> $0" >&2
+  echo "error: set STORAGE_PATH to an OVMS model-repo prefix" >&2
+  echo "  prefer: ./openshift/ensure-baseline-isvc.sh" >&2
+  echo "  or: STORAGE_PATH=object-detection/xray-detector/baseline $0" >&2
   exit 1
 fi
 

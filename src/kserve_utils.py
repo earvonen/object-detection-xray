@@ -109,3 +109,21 @@ def default_namespace() -> str:
 
 def default_service_name() -> str:
     return os.environ.get("INFERENCE_SERVICE_NAME", "xray-detector")
+
+
+def get_inference_service_storage_path(name: str, namespace: str) -> Optional[str]:
+    """Return current ``spec.predictor.model.storage.path`` or None."""
+    try:
+        out = _oc(
+            "get",
+            "inferenceservice",
+            name,
+            "-n",
+            namespace,
+            "-o",
+            "jsonpath={.spec.predictor.model.storage.path}",
+        )
+    except RuntimeError:
+        return None
+    path = (out or "").strip()
+    return path or None

@@ -32,11 +32,11 @@ Copy and tick:
 - [ ] KnativeServing Ready
 - [ ] ./deploy.sh --build-workbench --skip-isvc   # ns, Connection, MR RBAC, image, Notebook
 - [ ] Workbench Running; MLflow annotation opendatahub.io/mlflow-instance=mlflow
-- [ ] Notebooks 01→04 (train → select → export/register → stage=prod)
-- [ ] STORAGE_PATH=object-detection/xray-detector/<run_id> ./openshift/apply-inferenceservice.sh
-- [ ] ServingRuntime OVMS applied (script does this); ISVC Ready=True
-- [ ] ./pipelines/run-promote-deploy-canary.sh --action leave-canary
-- [ ] notebooks/05_infer_served.ipynb
+- [ ] Notebooks 01→03 (train → select → export/register candidate)
+- [ ] ./openshift/ensure-baseline-isvc.sh   # ISVC on …/baseline — NOT the candidate run_id
+- [ ] Notebook 04 stage=prod
+- [ ] ./pipelines/run-promote-deploy-canary.sh --action leave-canary  # expect two revisions/pods
+- [ ] notebooks/05_infer_served.ipynb (predictor URL)
 ```
 
 ## Commands (repo root)
@@ -50,10 +50,10 @@ oc apply -f openshift/knative-serving.yaml
 
 ./deploy.sh --build-workbench --skip-isvc
 
-# After notebook 03 has uploaded ONNX:
-STORAGE_PATH=object-detection/xray-detector/<run_id> \
-  ./openshift/apply-inferenceservice.sh
+# After notebook 03 has uploaded ONNX (seeds baseline; do not point ISVC at the candidate):
+./openshift/ensure-baseline-isvc.sh
 
+# After notebook 04 stage=prod:
 ./pipelines/run-promote-deploy-canary.sh --action leave-canary
 ```
 
@@ -71,9 +71,9 @@ STORAGE_PATH=object-detection/xray-detector/<run_id> \
 
 ## InferenceService timing
 
-Create ISVC **after** notebook 03 (ONNX in S3), **before** canary script. Pipeline only patches an existing ISVC.
+After notebook 03, run **`ensure-baseline-isvc.sh`** (not apply with the candidate `run_id`). Canary after notebook 04 must change `storage.path` so Knative creates a second revision/pod. Pipeline only patches an existing ISVC.
 
-**OVMS layout:** S3 prefix must contain `1/model.onnx` (not a flat `model.onnx`). Notebook 03 via `src/s3_utils.versioned_key` writes `object-detection/xray-detector/<run_id>/1/model.onnx`; `STORAGE_PATH` is the parent of `1/`.
+**OVMS layout:** S3 prefix must contain `1/model.onnx`. Candidate: `…/<run_id>/1/model.onnx`. Baseline: `…/baseline/1/model.onnx`.
 
 **Smoke test:** use the **predictor** HTTPS URL (`status.components.predictor.url`), not `status.url` (often 503). See [troubleshooting.md](troubleshooting.md).
 

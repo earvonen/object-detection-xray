@@ -17,6 +17,8 @@
 | External `status.url` (often `http://…`) returns OpenShift HTML **503** | Route / gateway mismatch; ISVC status URL is not always the working public path | Use **predictor** URL (HTTPS): `oc get isvc xray-detector -n object-detection-xray -o jsonpath='{.status.components.predictor.url}'` then `…/v2/models/xray-detector/infer`. Ready=True ≠ model loaded — check OVMS logs first |
 | `run-promote-deploy-canary.sh` fails on `oc patch inferenceservice` (exit 1 / Forbidden) | Workbench SA lacked ISVC patch RBAC (only pipeline SA was bound) | `oc apply -f openshift/rbac-workbench-isvc-patcher.yaml` (cluster-admin). Pull updated `src/` so `storage_path` strips `/model.onnx` before patch |
 | Canary patches `storage.path` ending in `model.onnx` | MR artifact stored object key, not OVMS repo root | `resolve_prod` now normalizes via `_ovms_storage_path`; re-run promote after pulling `registry_client.py` |
+| Canary 90/10 but `latest` and `prev` are the **same** revision / only one pod | ISVC already served the prod `storage.path` (applied candidate before canary) | `./openshift/ensure-baseline-isvc.sh --force` then canary again with a **different** prod path; script now fails fast if paths match |
+| `ensure-baseline-isvc.sh` cannot seed | No ONNX in bucket yet | Run notebook 03 first (uploads `…/<run_id>/1/model.onnx`), then re-run ensure |
 
 ## Useful probes
 

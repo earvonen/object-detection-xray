@@ -90,9 +90,11 @@ export AWS_SECRET_ACCESS_KEY=...
 export AWS_S3_ENDPOINT=...
 export AWS_DEFAULT_REGION=us-east-1
 export AWS_S3_BUCKET=models
-# Optional — create InferenceService now (otherwise create after ONNX upload):
-# export STORAGE_URI=s3://models/object-detection/xray-detector/<run_id>
-# or: export STORAGE_KEY=aws-connection-xray-models STORAGE_PATH=object-detection/xray-detector/<run_id>
+# After notebook 03, prefer baseline ISVC (not the candidate run_id) so canary works:
+#   ./openshift/ensure-baseline-isvc.sh
+# Optional override:
+# export STORAGE_KEY=aws-connection-xray-models
+# export BASELINE_PATH=object-detection/xray-detector/baseline
 ./deploy.sh
 ```
 

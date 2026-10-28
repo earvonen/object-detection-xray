@@ -23,23 +23,20 @@ Assumes `deploy-xray-demo` bootstrap is done. Work in project `object-detection-
    - Needs `MODEL_REGISTRY_URL` + SA/RBAC auth; Connection/`AWS_*` for upload  
    - Uploads `…/<run_id>/1/model.onnx` (OVMS version dir); restart kernel if client/`s3_utils` just updated  
    - **Do not** re-point the ISVC at this run_id (baseline from 00 stays `prev`)
-4. **04_promote_prod** — `stage=prod` → `.demo_state.json` (`SELECTED_VERSION_ID`)
-5. **Canary** — `./pipelines/run-promote-deploy-canary.sh --action leave-canary`  
+4. **04_promote_prod** — `stage=prod`, then **deploy canary** cell (`src.canary_deploy.run_flow(leave-canary)`)  
    - Needs ISVC patch RBAC (`openshift/rbac-workbench-isvc-patcher.yaml`)  
    - Expect two revisions/pods (`prev`=baseline, `latest`=prod path)  
-   - Script exits if paths are identical (canary would be a no-op)
-6. **05_infer_served** — uses injected `INFERENCE_ENDPOINT` (predictor URL). After canary: `./openshift/discover-demo-env.sh --restart` so `INFERENCE_ENDPOINT_LATEST` / `_PREV` appear for the optional tag cell.
-7. **Promote or rollback** — `--action promote` (100% + refresh S3 baseline) or `rollback`
+   - Fails if storage.path already equals prod (canary would be a no-op)
+5. **05_infer_served** — smoke predictor → tag-route both revisions → **promote** or **rollback** cell  
+   - Reads `INFERENCE_*` from live ISVC via `sync_inference_env()` (no shell script)
+
+Presenter path is **notebooks only** (00→05). Optional CLI remains at `pipelines/run-promote-deploy-canary.sh` for automation / DSP.
 
 ## Env
 
-Prefer **cluster discovery** over hand-exports (active `oc` session):
+Prefer ConfigMap from deploy (`./openshift/discover-demo-env.sh`). Notebooks also refresh `INFERENCE_*` from the ISVC in-process.
 
-```bash
-./openshift/discover-demo-env.sh --restart
-```
-
-Workbench gets `MODEL_REGISTRY_URL`, `INFERENCE_*`, etc. from ConfigMap `xray-demo-env`. `AWS_*` from Connection. `MLFLOW_*` URI+auth from Notebook annotation `opendatahub.io/mlflow-instance=mlflow`.
+Workbench: `MODEL_REGISTRY_URL` / names from ConfigMap `xray-demo-env`; `AWS_*` from Connection Secret; MLflow URI+auth from `opendatahub.io/mlflow-instance=mlflow`.
 
 See `docs/env.md` and `.env` (gitignored) for S3 only.
 ## If blocked

@@ -34,10 +34,8 @@ Copy and tick:
 - [ ] Workbench Running; MLflow annotation + ConfigMap xray-demo-env (MODEL_REGISTRY_URL, …)
 - [ ] notebooks/00_seed_baseline.ipynb  # weak model → …/baseline + ISVC Ready (before audience)
 - [ ] ./openshift/discover-demo-env.sh --restart   # if 00 did not already; fills INFERENCE_ENDPOINT
-- [ ] Notebooks 01→04 (train → select → export/register → stage=prod); do not retarget ISVC to candidate
-- [ ] ./pipelines/run-promote-deploy-canary.sh --action leave-canary  # expect two revisions/pods
-- [ ] ./openshift/discover-demo-env.sh --restart   # refresh latest-/prev- tag URLs for notebook 05
-- [ ] notebooks/05_infer_served.ipynb (uses injected INFERENCE_ENDPOINT)
+- [ ] Notebooks 01→04 (train → select → export/register → stage=prod + canary cell); do not retarget ISVC to candidate before 04
+- [ ] notebooks/05_infer_served.ipynb (infer + tag routes + promote/rollback cells)
 ```
 
 ## Agent: discover env into the workbench
@@ -79,9 +77,9 @@ oc apply -f openshift/knative-serving.yaml
 # Prefer notebook 00 before the live demo. Fallback after 03 only:
 # ./openshift/ensure-baseline-isvc.sh   # also refreshes INFERENCE_* via discover
 
-# After notebook 04 stage=prod:
-./pipelines/run-promote-deploy-canary.sh --action leave-canary
-./openshift/discover-demo-env.sh --restart   # tag routes for notebook 05
+# Live demo is notebooks 01→05 only (canary + promote/rollback are notebook cells).
+# Optional CLI / DSP compile still available:
+# ./pipelines/run-promote-deploy-canary.sh --action leave-canary
 ```
 
 `deploy.sh` sources `.env` when present; creates Connection Secret via `oc apply` YAML; applies Notebook/PVC unless `--skip-notebook`.

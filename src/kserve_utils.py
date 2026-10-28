@@ -127,3 +127,68 @@ def get_inference_service_storage_path(name: str, namespace: str) -> Optional[st
         return None
     path = (out or "").strip()
     return path or None
+
+
+def get_predictor_endpoints(
+    name: Optional[str] = None,
+    namespace: Optional[str] = None,
+) -> dict[str, Any]:
+    """Read predictor + canary tag URLs from the live InferenceService.
+
+    Returns keys: ``endpoint``, ``latest``, ``prev``, ``canary_percent``,
+    ``storage_path``, ``ready``, ``raw_traffic``. Suitable for notebook 05
+    without restarting the workbench / ConfigMap.
+    """
+    name = name or default_service_name()
+    namespace = namespace or default_namespace()
+    raw = _oc("get", "inferenceservice", name, "-n", namespace, "-o", "json")
+    doc = json.loads(raw)
+    status = doc.get("status") or {}
+    spec = doc.get("spec") or {}
+    predictor_status = (status.get("components") or {}).get("predictor") or {}
+    traffic = predictor_status.get("traffic") or []
+    latest = prev = ""
+    for t in traffic:
+        tag = (t.get("tag") or "").lower()
+        url = (t.get("url") or "").rstrip("/")
+        if not url:
+            continue
+        if tag == "latest":
+            latest = url
+        elif tag == "prev":
+            prev = url
+    endpoint = (predictor_status.get("url") or status.get("url") or "").rstrip("/")
+    canary = (spec.get("predictor") or {}).get("canaryTrafficPercent")
+    storage = ((spec.get("predictor") or {}).get("model") or {}).get("storage") or {}
+    ready = next(
+        (c.get("status") for c in (status.get("conditions") or []) if c.get("type") == "Ready"),
+        None,
+    )
+    return {
+        "endpoint": endpoint,
+        "latest": latest,
+        "prev": prev,
+        "canary_percent": canary,
+        "storage_path": storage.get("path") or "",
+        "ready": ready,
+        "raw_traffic": traffic,
+    }
+
+
+def sync_inference_env(
+    name: Optional[str] = None,
+    namespace: Optional[str] = None,
+) -> dict[str, Any]:
+    """Update ``os.environ`` INFERENCE_* from the live ISVC (current kernel only)."""
+    info = get_predictor_endpoints(name=name, namespace=namespace)
+    if info.get("endpoint"):
+        os.environ["INFERENCE_ENDPOINT"] = info["endpoint"]
+    if info.get("latest"):
+        os.environ["INFERENCE_ENDPOINT_LATEST"] = info["latest"]
+    else:
+        os.environ.pop("INFERENCE_ENDPOINT_LATEST", None)
+    if info.get("prev"):
+        os.environ["INFERENCE_ENDPOINT_PREV"] = info["prev"]
+    else:
+        os.environ.pop("INFERENCE_ENDPOINT_PREV", None)
+    return info

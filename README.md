@@ -87,24 +87,13 @@ Aim for ~20–30 minutes with short training runs (`DEMO_EPOCHS=3`).
 3. **Export & register** — [`notebooks/03_export_register.ipynb`](notebooks/03_export_register.ipynb)  
    ONNX export → `object-detection/xray-detector/<run_id>/1/model.onnx` → Model Registry `stage=candidate`.
 
-4. **Promote prod** — [`notebooks/04_promote_prod.ipynb`](notebooks/04_promote_prod.ipynb)  
-   Set `stage=prod` on the chosen version (clears previous prod). Show the pipeline contract (`uri` / `storage_path`).
+4. **Promote prod + canary** — [`notebooks/04_promote_prod.ipynb`](notebooks/04_promote_prod.ipynb)  
+   Set `stage=prod`, then deploy canary (`canaryTrafficPercent: 10`) from a notebook cell. Path must differ from the live baseline ISVC (notebook 00) so Knative creates a second revision/pod.
 
-5. **Deploy canary** —  
-   ```bash
-   ./pipelines/run-promote-deploy-canary.sh --action leave-canary
-   ```  
-   Patches storage to the **prod** path with `canaryTrafficPercent: 10`. Path must differ from the live baseline ISVC (from notebook 00) so Knative creates a second revision/pod.
+5. **Infer + promote/rollback** — [`notebooks/05_infer_served.ipynb`](notebooks/05_infer_served.ipynb)  
+   Hit the predictor URL and `latest-` / `prev-` tag routes, then promote to 100% or roll back — all in cells.
 
-6. **Validate** — [`notebooks/05_infer_served.ipynb`](notebooks/05_infer_served.ipynb)  
-   Hit the predictor URL; optionally `latest-` / `prev-` tag routes.
-
-7. **Promote or roll back**  
-   ```bash
-   ./pipelines/run-promote-deploy-canary.sh --action promote   # 100%; refreshes S3 baseline
-   # or
-   ./pipelines/run-promote-deploy-canary.sh --action rollback
-   ```
+Optional automation (same logic as the notebook cells): `./pipelines/run-promote-deploy-canary.sh` or compile for Data Science Pipelines.
 
 If you skipped notebook 00, run `./openshift/ensure-baseline-isvc.sh` after notebook 03 before canary.
 

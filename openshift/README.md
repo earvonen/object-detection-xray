@@ -33,7 +33,7 @@ STORAGE_PATH=object-detection/xray-detector/baseline ./openshift/apply-inference
 | `inferenceservice-promote-100.yaml` | 100% to new revision (no canary field) |
 | `inferenceservice-rollback.yaml` | `canaryTrafficPercent: 0` |
 
-Prefer the Data Science Pipeline (`pipelines/promote_deploy_canary.py`), which patches the live InferenceService after resolving `stage=prod` from the OpenShift AI Model Registry.
+Demo path: notebook 04/05 cells call `src.canary_deploy` (same logic as `pipelines/promote_deploy_canary.py` CLI / optional DSP compile).
 
 Tag routing annotation `serving.kserve.io/enable-tag-routing: "true"` exposes `latest-` / `prev-` routes for explicit canary validation.
 

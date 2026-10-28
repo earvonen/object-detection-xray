@@ -2,6 +2,8 @@
 
 Resolves **OpenShift AI Model Registry** `stage=prod` for `xray-detector` and updates the KServe `InferenceService`.
 
+**Live demo:** use notebook cells in `04_promote_prod` (canary) and `05_infer_served` (promote/rollback) — they call `src.canary_deploy.run_flow`. This folder is the optional CLI / Data Science Pipelines compile path for the same logic.
+
 ## Steps
 
 1. **ResolveProd** — find version with custom property `stage=prod`

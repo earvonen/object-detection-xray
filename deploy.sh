@@ -379,14 +379,12 @@ echo "  2. After notebook 00 / ISVC Ready, refresh endpoints:"
 echo "       ./openshift/discover-demo-env.sh --restart"
 if [[ "$BUILD_WORKBENCH" -eq 0 ]]; then
   echo "  3. Prefer ./deploy.sh --build-workbench so the Notebook image exists; else bash install-dependencies.sh"
-  echo "  4. Run notebooks/01 → 04, then:"
+  echo "  4. Demo path: notebooks/00 (seed) then 01 → 05 (canary + promote are notebook cells)"
 else
-  echo "  3. Run notebooks/01 → 04, then:"
+  echo "  3. Demo path: notebooks/00 (seed) then 01 → 05 (canary + promote are notebook cells)"
 fi
-echo "       ./pipelines/run-promote-deploy-canary.sh --action leave-canary"
-echo "  Optional: import ${PIPELINE_OUT} into Data Science Pipelines"
-echo "  Shell helper: source ${ENV_OUT}"
-echo
+echo "  Optional CLI/DSP: ${PIPELINE_OUT} / ./pipelines/run-promote-deploy-canary.sh"
+echo "  Shell helper: source ${ENV_OUT}"echo
 if [[ "$DRY_RUN" -eq 0 ]]; then
   oc get ns "${NAMESPACE}" -o name
   oc get sa,role,rolebinding,secret,configmap,inferenceservice -n "${NAMESPACE}" 2>/dev/null || true

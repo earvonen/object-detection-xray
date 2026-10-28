@@ -1,24 +1,15 @@
 #!/usr/bin/env python3
 """Promote / canary / rollback pipeline for the X-ray detector demo.
 
-Resolves the OpenShift AI Model Registry version with ``stage=prod``, then
-patches the KServe InferenceService.
+Core logic lives in ``src.canary_deploy`` (used by notebooks). This module
+keeps the CLI entrypoint and optional KFP compile for Data Science Pipelines.
 
-Usage (local / workbench CLI — same logic as DSP components)::
+Demo path: run canary / promote / rollback cells in notebooks 04 and 05.
+Optional CLI (same behavior)::
 
-    export MODEL_REGISTRY_URL=...
-    export KSERVE_NAMESPACE=my-project
     python pipelines/promote_deploy_canary.py --action leave-canary
     python pipelines/promote_deploy_canary.py --action promote
-    python pipelines/promote_deploy_canary.py --action rollback
-
-Compile for Data Science Pipelines (KFP v2)::
-
     python pipelines/promote_deploy_canary.py --compile /tmp/promote_deploy_canary.yaml
-
-Future automation: trigger this pipeline from a registry webhook, GitOps
-reconcile, or Contour/EventListener when ``stage=prod`` changes. The demo
-itself runs the pipeline explicitly after notebook 04.
 """
 
 from __future__ import annotations
@@ -27,176 +18,33 @@ import argparse
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
-from typing import NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.kserve_utils import (  # noqa: E402
-    default_namespace,
-    default_service_name,
-    get_inference_service_storage_path,
-    patch_inference_service,
+from src.canary_deploy import (  # noqa: E402
+    ResolveResult,
+    deploy_canary,
+    promote_or_rollback,
+    resolve_prod,
+    run_flow,
+    validate_endpoint,
 )
-from src.registry_client import ModelRegistryClient  # noqa: E402
-from src.s3_utils import refresh_baseline_from, storage_path_from_uri  # noqa: E402
+from src.kserve_utils import default_namespace, default_service_name  # noqa: E402
 
-
-class ResolveResult(NamedTuple):
-    version_id: str
-    version_name: str
-    uri: str
-    storage_key: str
-    storage_path: str
-    mlflow_run_id: str
-
-
-def resolve_prod(model_name: str) -> ResolveResult:
-    client = ModelRegistryClient()
-    resolved = client.resolve_prod(model_name)
-    return ResolveResult(
-        version_id=str(resolved["version_id"]),
-        version_name=str(resolved.get("version_name") or ""),
-        uri=str(resolved.get("uri") or ""),
-        storage_key=str(resolved.get("storage_key") or os.environ.get("STORAGE_KEY") or ""),
-        storage_path=str(resolved.get("storage_path") or ""),
-        mlflow_run_id=str(resolved.get("mlflow_run_id") or ""),
-    )
-
-
-def deploy_canary(
-    resolved: ResolveResult,
-    namespace: str,
-    service_name: str,
-    canary_percent: int,
-    *,
-    require_new_path: bool = True,
-) -> str:
-    new_path = storage_path_from_uri(resolved.storage_path or resolved.uri or "")
-    current = get_inference_service_storage_path(service_name, namespace)
-    if current and new_path and current.rstrip("/") == new_path.rstrip("/"):
-        if require_new_path:
-            raise SystemExit(
-                f"Canary storage.path matches the live InferenceService ({current}).\n"
-                "Knative will not create a second revision/pod.\n"
-                "Serve a different baseline first, e.g.:\n"
-                "  ./openshift/ensure-baseline-isvc.sh --force\n"
-                "then re-run promote/canary so stage=prod points at the new run's path."
-            )
-        # promote/rollback: already serving this path (typical after leave-canary).
-        return f"skipped canary redeploy (already on {current})"
-    return patch_inference_service(
-        name=service_name,
-        namespace=namespace,
-        storage_uri=resolved.uri if not resolved.storage_key else None,
-        storage_key=resolved.storage_key or None,
-        storage_path=new_path or resolved.storage_path or None,
-        canary_traffic_percent=canary_percent,
-        remove_canary=False,
-        enable_tag_routing=True,
-    )
-
-
-def validate_endpoint(endpoint: str, skip: bool = False) -> str:
-    if skip or not endpoint:
-        return "skipped"
-    req = urllib.request.Request(endpoint, method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
-            return f"ok status={resp.status}"
-    except urllib.error.HTTPError as exc:
-        # Many predictors return 404 on GET /; treat HTTP response as reachability.
-        return f"reachable status={exc.code}"
-    except Exception as exc:  # noqa: BLE001
-        return f"failed: {exc}"
-
-
-def promote_or_rollback(
-    action: str,
-    resolved: ResolveResult,
-    namespace: str,
-    service_name: str,
-) -> str:
-    if action == "leave-canary":
-        return "left in canary state"
-    if action == "promote":
-        out = patch_inference_service(
-            name=service_name,
-            namespace=namespace,
-            storage_uri=resolved.uri if not resolved.storage_key else None,
-            storage_key=resolved.storage_key or None,
-            storage_path=storage_path_from_uri(resolved.storage_path or resolved.uri or "")
-            or resolved.storage_path
-            or None,
-            remove_canary=True,
-            enable_tag_routing=True,
-        )
-        # Keep S3 baseline in sync so the next namespace bootstrap has a real "prev".
-        try:
-            src = storage_path_from_uri(resolved.storage_path or resolved.uri or "")
-            if src:
-                baseline_uri = refresh_baseline_from(src)
-                print(f"refreshed S3 baseline from prod → {baseline_uri}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"warning: could not refresh S3 baseline: {exc}")
-        return out
-    if action == "rollback":
-        return patch_inference_service(
-            name=service_name,
-            namespace=namespace,
-            storage_uri=resolved.uri if not resolved.storage_key else None,
-            storage_key=resolved.storage_key or None,
-            storage_path=resolved.storage_path or None,
-            canary_traffic_percent=0,
-            remove_canary=False,
-            enable_tag_routing=True,
-        )
-    raise ValueError(f"Unknown action: {action}")
-
-
-def run_flow(
-    model_name: str,
-    namespace: str,
-    service_name: str,
-    canary_percent: int,
-    action: str,
-    validate_url: str,
-    skip_validate: bool,
-) -> dict:
-    print(f"[1/4] Resolving stage=prod for {model_name}")
-    resolved = resolve_prod(model_name)
-    print(json.dumps(resolved._asdict(), indent=2))
-
-    print(f"[2/4] Deploying canary ({canary_percent}%) to InferenceService {namespace}/{service_name}")
-    # leave-canary needs a path change for a real second revision; promote/rollback
-    # often re-resolve the same prod path that is already the live/canary target.
-    deploy_out = deploy_canary(
-        resolved,
-        namespace,
-        service_name,
-        canary_percent,
-        require_new_path=(action == "leave-canary"),
-    )
-    print(deploy_out)
-
-    print("[3/4] Validating endpoint")
-    validate_out = validate_endpoint(validate_url, skip=skip_validate)
-    print(validate_out)
-
-    print(f"[4/4] action={action}")
-    final_out = promote_or_rollback(action, resolved, namespace, service_name)
-    print(final_out)
-
-    return {
-        "resolved": resolved._asdict(),
-        "deploy": deploy_out,
-        "validate": validate_out,
-        "final": final_out,
-    }
+# Re-export for callers that imported these names from this module.
+__all__ = [
+    "ResolveResult",
+    "compile_pipeline",
+    "deploy_canary",
+    "main",
+    "promote_or_rollback",
+    "resolve_prod",
+    "run_flow",
+    "validate_endpoint",
+]
 
 
 def compile_pipeline(output_path: str) -> None:

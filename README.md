@@ -2,14 +2,15 @@
 
 OpenShift AI demo of an end-to-end **model lifecycle** for X-ray baggage / prohibited-item detection:
 
-**Experiment → Track → Evaluate → Select → Register → Promote → Deploy → Validate → Roll back or promote further**
+**Experiment → Track → Evaluate → Select → Register → Promote → Canary → Validate → Promote or roll back**
 
 | Layer | Role in this demo |
 |-------|-------------------|
 | **MLflow** | Data-scientist experiments only (params, metrics, dataset lineage, artifacts) |
 | **OpenShift AI Model Registry** | Production boundary — curated versions; `stage=prod` is the production designation |
-| **Data Science Pipelines** | Resolve `stage=prod` and update KServe (canary → 100% or rollback) |
-| **KServe (Serverless)** | Serve ONNX; canary traffic split |
+| **KServe (Serverless)** | Serve ONNX; canary traffic split (`latest-` / `prev-` tag routes) |
+| **Notebooks 00–05** | Presenter path — train through canary, infer, and promote/rollback **from cells** |
+| **Data Science Pipelines** *(optional)* | Same canary/promote logic compiled for automation (webhook / DSP), not required live |
 
 MLflow Model Registry aliases (e.g. `@prod`) are **not** used. Production moves by changing `stage=prod` on an OpenShift AI Model Registry version.
 
@@ -19,8 +20,8 @@ Jupyter workbench
   → compare / select (few candidates)
   → ONNX → S3
   → OpenShift AI Model Registry (stage=candidate → stage=prod)
-  → DSP pipeline
   → KServe InferenceService (canary → promote / rollback)
+       ↑ driven by notebook cells (src.canary_deploy)
 ```
 
 ## Dataset
@@ -30,10 +31,10 @@ Jupyter workbench
 
 ## Prerequisites (cluster)
 
-- OpenShift AI with **MLflow**, **Model Registry**, **Data Science Pipelines**, and **single-model serving**
-- KServe in **Advanced / Serverless** mode (required for `canaryTrafficPercent`)
-- S3-compatible object storage + project Connection
-- Workbench image: **Jupyter | Minimal | CUDA | Python 3.12** (attach a GPU when training live; CPU + short `DEMO_EPOCHS` or warm-start also works)
+- OpenShift AI with **MLflow**, **Model Registry**, and **single-model serving** (DSP optional)
+- KServe in **Advanced / Serverless** mode + a **KnativeServing** instance (required for `canaryTrafficPercent`)
+- S3-compatible object storage + project Connection (you supply credentials — see below)
+- GPU node recommended for live training; CPU + short knobs or warm-start also works
 
 Environment variables: [`docs/env.md`](docs/env.md).
 
@@ -41,89 +42,107 @@ Environment variables: [`docs/env.md`](docs/env.md).
 
 ### Cluster bootstrap (with `oc` login)
 
-Platform components (MLflow, Model Registry, DSP, KServe Serverless) must already exist.
-This creates project **`object-detection-xray`**, pipeline SA/RBAC, optional S3 Connection, and optionally the InferenceService:
+Platform components (MLflow, Model Registry, KServe Serverless / KnativeServing) must already exist.
+`deploy.sh` creates project **`object-detection-xray`**, Connection Secret (if `AWS_*` set), Model Registry + ISVC patch RBAC, workbench image/Notebook, and discovers cluster URLs into ConfigMap **`xray-demo-env`**.
 
 ```bash
 oc login ...
-export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
-export AWS_S3_ENDPOINT=... AWS_DEFAULT_REGION=us-east-1 AWS_S3_BUCKET=models
-# Optional until a model is in S3:
-# export STORAGE_URI=s3://$AWS_S3_BUCKET/object-detection/xray-detector/<run_id>
-./deploy.sh
-source .deploy/env.cluster.sh
+# Prefer a gitignored .env with AWS_* (see docs/env.md)
+set -a && source .env && set +a
+
+# Skip ISVC until notebook 00 seeds …/baseline (canary needs a different path later)
+./deploy.sh --build-workbench --skip-isvc
+
+# Optional: re-discover URLs after the ISVC exists
+./openshift/discover-demo-env.sh --restart
 ```
 
-**S3 / object storage (agents and operators):** do **not** stand up MinIO or any other object store yourself. Ask the user how to proceed (external bucket, existing Connection, or defer serving). Only create the data-connection Secret after they supply `AWS_*` (or an equivalent Connection). See [`.cursor/rules/s3-ask-user.mdc`](.cursor/rules/s3-ask-user.mdc).
+Workbench env (no hand-exports needed in notebooks):
+
+| Source | Variables |
+|--------|-----------|
+| Notebook annotation `opendatahub.io/mlflow-instance=mlflow` | `MLFLOW_TRACKING_URI` + Kubernetes auth |
+| ConfigMap `xray-demo-env` (from `discover-demo-env.sh`) | `MODEL_REGISTRY_URL`, `INFERENCE_ENDPOINT`, tag URLs, names/prefixes |
+| Connection Secret (via `envFrom`) | `AWS_*` |
+
+**S3 / object storage:** do **not** stand up MinIO or any other object store for this demo. Use an existing bucket/Connection and supply `AWS_*`, or defer serving. See [`.cursor/rules/s3-ask-user.mdc`](.cursor/rules/s3-ask-user.mdc).
 
 ### Workbench image
 
-**Recommended:** build a custom image that starts from **Jupyter | Minimal | CUDA | Python 3.12** (`minimal-gpu:3.5`) and runs [`install-dependencies.sh`](install-dependencies.sh):
+**Recommended:** `./deploy.sh --build-workbench` layers [`install-dependencies.sh`](install-dependencies.sh) on **Jupyter | Minimal | CUDA | Python 3.12** and applies Notebook `object-detection-workbench`.
 
-```bash
-./deploy.sh --build-workbench
-# or manually — see openshift/workbench/README.md
-```
+**Alternative:** stock Minimal CUDA image + `bash install-dependencies.sh` in the terminal.
 
-Then create a workbench in project `object-detection-xray` using **X-ray detector | Minimal CUDA | Python 3.12** (`xray-workbench:latest`) and attach a GPU if training.
+Clone or sync this repo into the workbench so `images/data.yaml` and `notebooks/` resolve.
 
-**Alternative:** use the stock **Jupyter | Minimal | CUDA | Python 3.12** image and run `bash install-dependencies.sh` once in the workbench terminal.
+### Reset / teardown
 
-Clone or mount this repo at the workbench root so paths like `images/data.yaml` resolve.
+| Goal | Command |
+|------|---------|
+| Wipe MLflow runs + clear `stage=prod` (keep LIVE model) | `./openshift/reset-mlflow-registry.sh` |
+| Delete demo namespace + MR RoleBinding | `./openshift/teardown-demo.sh` |
+| Full reset (data + namespace) | `./openshift/reset-demo.sh` |
 
-## Demo flow (presenter script)
+## Demo flow (presenter — notebooks only)
 
-Aim for ~20–30 minutes with short training runs (`DEMO_EPOCHS=3`).
+Aim for ~20–30 minutes with short training (`DEMO_EPOCHS=3`). Each code cell has a plain-language markdown blurb above it.
 
 0. **Seed baseline (before the audience)** — [`notebooks/00_seed_baseline.ipynb`](notebooks/00_seed_baseline.ipynb)  
-   Train a deliberately weak model (tiny data fraction, 1 epoch), upload to `…/baseline/1/model.onnx`, and apply the InferenceService so a **prev** revision is already live when the demo starts.
+   Deliberately weak train → `…/baseline/1/model.onnx` → InferenceService on that path so a **prev** revision exists before the live story.
 
 1. **Train & track** — [`notebooks/01_train_track.ipynb`](notebooks/01_train_track.ipynb)  
-   Run 2–3 hyperparameter variants; each run logs to MLflow. Emphasize experiment history, not registration.
+   Short YOLO matrix → MLflow experiment `xray-detector`. Emphasize experiment history, not registration.
 
 2. **Evaluate & select** — [`notebooks/02_evaluate_select.ipynb`](notebooks/02_evaluate_select.ipynb)  
-   Compare runs; pick one. Explicitly show that other runs are **not** registered.
+   Compare runs; pick one into `.demo_state.json`. Other runs stay experiments only.
 
 3. **Export & register** — [`notebooks/03_export_register.ipynb`](notebooks/03_export_register.ipynb)  
-   ONNX export → `object-detection/xray-detector/<run_id>/1/model.onnx` → Model Registry `stage=candidate`.
+   ONNX → `object-detection/xray-detector/<run_id>/1/model.onnx` → Model Registry `stage=candidate`.  
+   **Do not** retarget the ISVC to this run (baseline from 00 stays `prev`).
 
 4. **Promote prod + canary** — [`notebooks/04_promote_prod.ipynb`](notebooks/04_promote_prod.ipynb)  
-   Set `stage=prod`, then deploy canary (`canaryTrafficPercent: 10`) from a notebook cell. Path must differ from the live baseline ISVC (notebook 00) so Knative creates a second revision/pod.
+   `stage=prod`, then a cell patches the ISVC with `canaryTrafficPercent: 10` (via `src.canary_deploy`). Expect two revisions/pods.
 
 5. **Infer + promote/rollback** — [`notebooks/05_infer_served.ipynb`](notebooks/05_infer_served.ipynb)  
-   Hit the predictor URL and `latest-` / `prev-` tag routes, then promote to 100% or roll back — all in cells.
-
-Optional automation (same logic as the notebook cells): `./pipelines/run-promote-deploy-canary.sh` or compile for Data Science Pipelines.
+   Smoke the predictor URL, hit `latest-` / `prev-` tag routes, then promote to 100% or roll back — all in cells.
 
 If you skipped notebook 00, run `./openshift/ensure-baseline-isvc.sh` after notebook 03 before canary.
 
-Warm-start option: skip live training and export from checked-in `runs-openshift/exp1/weights/best.pt` by setting tags/paths manually — useful if GPU time is limited.
+Warm-start option: skip live training and export from checked-in `runs-openshift/exp1/weights/best.pt` — useful if GPU time is limited.
 
 ## Repository layout
 
 | Path | Purpose |
 |------|---------|
-| `notebooks/01_…05_…` | Lifecycle notebooks |
-| `src/` | Dataset fingerprint, MLflow helpers, Model Registry client, S3 + KServe utils |
-| `openshift/` | InferenceService + canary/promote/rollback examples + pipeline RBAC |
-| `pipelines/` | Promote/deploy/canary pipeline (CLI + KFP compile) |
+| `notebooks/00_…05_…` | Seed + full lifecycle (presenter path) |
+| `src/` | MLflow helpers, Model Registry client, S3/OVMS paths, KServe patch + `canary_deploy` |
+| `openshift/` | ISVC manifests, workbench build, RBAC, `discover-demo-env.sh`, reset/teardown |
+| `pipelines/` | Optional CLI / KFP compile of the same canary flow |
 | `docs/env.md` | Environment variables |
-| `train.ipynb` / `test.ipynb` / `export.ipynb` | Legacy single-cell notebooks (still usable; paths aligned to `runs-openshift/`) |
-| `upload-best-onnx-to-s3.sh` | Optional AWS CLI upload helper |
+| `deploy.sh` | Bootstrap project, Connection, workbench, discovery |
+| `train.ipynb` / `test.ipynb` / `export.ipynb` | Legacy notebooks (paths aligned to `runs-openshift/`) |
 
 ## Why OpenShift AI Model Registry here?
 
-MLflow remains the familiar DS experiment system. The OpenShift AI Model Registry is the **operational** handoff: only curated models, dashboard visibility, RBAC/project sharing, and a stable contract for pipelines and KServe. That keeps “every experiment artifact” out of production serving.
+MLflow remains the familiar DS experiment system. The OpenShift AI Model Registry is the **operational** handoff: only curated models, dashboard visibility, RBAC/project sharing, and a stable contract for serving. That keeps “every experiment artifact” out of production.
 
 ## Serving notes
 
-- Format: **ONNX** on S3-compatible storage
-- Canary requires Knative Serverless mode
-- YOLO ONNX may need client-side letterbox/NMS for polished boxes; notebook 05 proves endpoint reachability and lifecycle wiring
+- Format: **ONNX** on S3; OVMS expects `{prefix}/1/model.onnx` (baseline: `…/baseline/1/model.onnx`)
+- Canary needs Knative Serverless + a path change vs the live ISVC
+- Smoke tests: use the **predictor** URL (`status.components.predictor.url` / `INFERENCE_ENDPOINT`), not `status.url` (often 503)
+- Tag routing (`serving.kserve.io/enable-tag-routing=true`) exposes `latest-` / `prev-` hosts for explicit canary checks
+- YOLO ONNX may need client-side letterbox/NMS for pretty boxes; notebook 05 proves the serving path
 
 ## Automation path
 
-The demo runs the pipeline **after** `stage=prod` is set. The same pipeline is the automation seam for production: webhook / EventListener / GitOps reconcile on production designation change → resolve registry → canary → promote.
+The live demo uses notebook cells. The same logic (`src.canary_deploy` / `pipelines/promote_deploy_canary.py`) is the seam for production automation: webhook / EventListener / GitOps on `stage=prod` → canary → promote.
+
+```bash
+# Optional — same behavior as notebook 04/05 cells
+./pipelines/run-promote-deploy-canary.sh --action leave-canary
+./pipelines/run-promote-deploy-canary.sh --action promote   # or rollback
+```
 
 ## License
 

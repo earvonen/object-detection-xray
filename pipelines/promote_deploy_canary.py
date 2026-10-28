@@ -73,17 +73,22 @@ def deploy_canary(
     namespace: str,
     service_name: str,
     canary_percent: int,
+    *,
+    require_new_path: bool = True,
 ) -> str:
     new_path = storage_path_from_uri(resolved.storage_path or resolved.uri or "")
     current = get_inference_service_storage_path(service_name, namespace)
     if current and new_path and current.rstrip("/") == new_path.rstrip("/"):
-        raise SystemExit(
-            f"Canary storage.path matches the live InferenceService ({current}).\n"
-            "Knative will not create a second revision/pod.\n"
-            "Serve a different baseline first, e.g.:\n"
-            "  ./openshift/ensure-baseline-isvc.sh --force\n"
-            "then re-run promote/canary so stage=prod points at the new run's path."
-        )
+        if require_new_path:
+            raise SystemExit(
+                f"Canary storage.path matches the live InferenceService ({current}).\n"
+                "Knative will not create a second revision/pod.\n"
+                "Serve a different baseline first, e.g.:\n"
+                "  ./openshift/ensure-baseline-isvc.sh --force\n"
+                "then re-run promote/canary so stage=prod points at the new run's path."
+            )
+        # promote/rollback: already serving this path (typical after leave-canary).
+        return f"skipped canary redeploy (already on {current})"
     return patch_inference_service(
         name=service_name,
         namespace=namespace,
@@ -167,7 +172,15 @@ def run_flow(
     print(json.dumps(resolved._asdict(), indent=2))
 
     print(f"[2/4] Deploying canary ({canary_percent}%) to InferenceService {namespace}/{service_name}")
-    deploy_out = deploy_canary(resolved, namespace, service_name, canary_percent)
+    # leave-canary needs a path change for a real second revision; promote/rollback
+    # often re-resolve the same prod path that is already the live/canary target.
+    deploy_out = deploy_canary(
+        resolved,
+        namespace,
+        service_name,
+        canary_percent,
+        require_new_path=(action == "leave-canary"),
+    )
     print(deploy_out)
 
     print("[3/4] Validating endpoint")

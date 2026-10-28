@@ -32,9 +32,8 @@ Copy and tick:
 - [ ] KnativeServing Ready
 - [ ] ./deploy.sh --build-workbench --skip-isvc   # ns, Connection, MR RBAC, image, Notebook
 - [ ] Workbench Running; MLflow annotation opendatahub.io/mlflow-instance=mlflow
-- [ ] Notebooks 01→03 (train → select → export/register candidate)
-- [ ] ./openshift/ensure-baseline-isvc.sh   # ISVC on …/baseline — NOT the candidate run_id
-- [ ] Notebook 04 stage=prod
+- [ ] notebooks/00_seed_baseline.ipynb  # weak model → …/baseline + ISVC Ready (before audience)
+- [ ] Notebooks 01→04 (train → select → export/register → stage=prod); do not retarget ISVC to candidate
 - [ ] ./pipelines/run-promote-deploy-canary.sh --action leave-canary  # expect two revisions/pods
 - [ ] notebooks/05_infer_served.ipynb (predictor URL)
 ```
@@ -50,8 +49,8 @@ oc apply -f openshift/knative-serving.yaml
 
 ./deploy.sh --build-workbench --skip-isvc
 
-# After notebook 03 has uploaded ONNX (seeds baseline; do not point ISVC at the candidate):
-./openshift/ensure-baseline-isvc.sh
+# Prefer notebook 00 before the live demo. Fallback after 03 only:
+# ./openshift/ensure-baseline-isvc.sh
 
 # After notebook 04 stage=prod:
 ./pipelines/run-promote-deploy-canary.sh --action leave-canary
@@ -71,7 +70,7 @@ oc apply -f openshift/knative-serving.yaml
 
 ## InferenceService timing
 
-After notebook 03, run **`ensure-baseline-isvc.sh`** (not apply with the candidate `run_id`). Canary after notebook 04 must change `storage.path` so Knative creates a second revision/pod. Pipeline only patches an existing ISVC.
+Prefer **notebook 00** to seed `…/baseline` and apply the ISVC before the live demo. Canary after notebook 04 must change `storage.path` so Knative creates a second revision/pod. Pipeline only patches an existing ISVC.
 
 **OVMS layout:** S3 prefix must contain `1/model.onnx`. Candidate: `…/<run_id>/1/model.onnx`. Baseline: `…/baseline/1/model.onnx`.
 

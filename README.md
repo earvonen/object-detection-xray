@@ -75,6 +75,9 @@ Clone or mount this repo at the workbench root so paths like `images/data.yaml` 
 
 Aim for ~20–30 minutes with short training runs (`DEMO_EPOCHS=3`).
 
+0. **Seed baseline (before the audience)** — [`notebooks/00_seed_baseline.ipynb`](notebooks/00_seed_baseline.ipynb)  
+   Train a deliberately weak model (tiny data fraction, 1 epoch), upload to `…/baseline/1/model.onnx`, and apply the InferenceService so a **prev** revision is already live when the demo starts.
+
 1. **Train & track** — [`notebooks/01_train_track.ipynb`](notebooks/01_train_track.ipynb)  
    Run 2–3 hyperparameter variants; each run logs to MLflow. Emphasize experiment history, not registration.
 
@@ -84,30 +87,26 @@ Aim for ~20–30 minutes with short training runs (`DEMO_EPOCHS=3`).
 3. **Export & register** — [`notebooks/03_export_register.ipynb`](notebooks/03_export_register.ipynb)  
    ONNX export → `object-detection/xray-detector/<run_id>/1/model.onnx` → Model Registry `stage=candidate`.
 
-4. **Baseline InferenceService** (once per project, or after reset) — **do not** point the ISVC at the run you are about to canary:
-   ```bash
-   ./openshift/ensure-baseline-isvc.sh
-   ```
-   Seeds `…/baseline/1/model.onnx` if needed and serves that path. An existing Ready ISVC is left alone so it stays the “prev” revision.
-
-5. **Promote prod** — [`notebooks/04_promote_prod.ipynb`](notebooks/04_promote_prod.ipynb)  
+4. **Promote prod** — [`notebooks/04_promote_prod.ipynb`](notebooks/04_promote_prod.ipynb)  
    Set `stage=prod` on the chosen version (clears previous prod). Show the pipeline contract (`uri` / `storage_path`).
 
-6. **Deploy canary** — [`pipelines/promote_deploy_canary.py`](pipelines/promote_deploy_canary.py)  
+5. **Deploy canary** —  
    ```bash
    ./pipelines/run-promote-deploy-canary.sh --action leave-canary
    ```  
-   Patches storage to the **prod** path with `canaryTrafficPercent: 10`. That path must differ from the live ISVC path so Knative creates revision `…-0000N+1` and a second pod.
+   Patches storage to the **prod** path with `canaryTrafficPercent: 10`. Path must differ from the live baseline ISVC (from notebook 00) so Knative creates a second revision/pod.
 
-7. **Validate** — [`notebooks/05_infer_served.ipynb`](notebooks/05_infer_served.ipynb)  
-   Hit the predictor URL; optionally `latest-` / `prev-` tag routes (two revisions when canary is healthy).
+6. **Validate** — [`notebooks/05_infer_served.ipynb`](notebooks/05_infer_served.ipynb)  
+   Hit the predictor URL; optionally `latest-` / `prev-` tag routes.
 
-8. **Promote or roll back**  
+7. **Promote or roll back**  
    ```bash
    ./pipelines/run-promote-deploy-canary.sh --action promote   # 100%; refreshes S3 baseline
    # or
-   ./pipelines/run-promote-deploy-canary.sh --action rollback  # canaryTrafficPercent: 0
+   ./pipelines/run-promote-deploy-canary.sh --action rollback
    ```
+
+If you skipped notebook 00, run `./openshift/ensure-baseline-isvc.sh` after notebook 03 before canary.
 
 Warm-start option: skip live training and export from checked-in `runs-openshift/exp1/weights/best.pt` by setting tags/paths manually — useful if GPU time is limited.
 

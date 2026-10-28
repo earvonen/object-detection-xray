@@ -120,6 +120,10 @@ Writes rendered manifests and `env.cluster.sh` under `.deploy/` (gitignored).
 | `DEMO_MODEL` | `yolov8n.pt` | Base checkpoint |
 | `DEMO_BATCH` | `8` | Train batch size (lower if the 16Gi workbench OOMs; try `4`) |
 | `DEMO_WORKERS` | `2` | DataLoader workers (Ultralytics default `8` often blows host RAM) |
+| `BASELINE_EPOCHS` | `1` | Notebook 00 weak seed |
+| `BASELINE_FRACTION` | `0.02` | Notebook 00: fraction of train images |
+| `BASELINE_IMGSZ` | `320` | Notebook 00 small input size |
+| `BASELINE_PATH` | `object-detection/xray-detector/baseline` | S3/OVMS prefix for the pre-demo ISVC |
 | `SELECTED_RUN_ID` | *(from notebook 02)* | MLflow run chosen for export/register |
 | `SELECTED_VERSION_ID` | *(from notebook 03)* | Model Registry version id to promote |
 

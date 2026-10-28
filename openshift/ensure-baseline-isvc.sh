@@ -113,3 +113,10 @@ fi
 echo "Applying InferenceService on baseline path ${BASELINE_PATH}"
 STORAGE_PATH="${BASELINE_PATH}" STORAGE_KEY="${STORAGE_KEY}" NAMESPACE="${NAMESPACE}" \
   "${SCRIPT_DIR}/apply-inferenceservice.sh"
+
+# Fill INFERENCE_ENDPOINT(+ tag routes) into ConfigMap for the workbench.
+if [[ -x "${SCRIPT_DIR}/discover-demo-env.sh" ]]; then
+  echo "Refreshing workbench demo env from InferenceService"
+  KSERVE_NAMESPACE="${NAMESPACE}" STORAGE_KEY="${STORAGE_KEY}" \
+    "${SCRIPT_DIR}/discover-demo-env.sh" --restart || true
+fi

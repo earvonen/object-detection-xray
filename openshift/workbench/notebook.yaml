@@ -47,6 +47,16 @@ spec:
                 --ServerApp.quit_button=False
             - name: JUPYTER_IMAGE
               value: __WORKBENCH_IMAGE__
+          # Cluster URLs/names: openshift/discover-demo-env.sh → ConfigMap xray-demo-env.
+          # S3 AWS_*: Connection Secret (also referenced by opendatahub.io/connections for UI).
+          # MLflow URI+auth: annotation opendatahub.io/mlflow-instance (injected separately).
+          envFrom:
+            - configMapRef:
+                name: xray-demo-env
+                optional: true
+            - secretRef:
+                name: __CONNECTION_NAME__
+                optional: true
           resources:
             requests:
               cpu: "4"

@@ -28,19 +28,20 @@ Assumes `deploy-xray-demo` bootstrap is done. Work in project `object-detection-
    - Needs ISVC patch RBAC (`openshift/rbac-workbench-isvc-patcher.yaml`)  
    - Expect two revisions/pods (`prev`=baseline, `latest`=prod path)  
    - Script exits if paths are identical (canary would be a no-op)
-6. **05_infer_served** — set `INFERENCE_ENDPOINT` to **predictor** URL (`status.components.predictor.url`), not `status.url` (often 503)
+6. **05_infer_served** — uses injected `INFERENCE_ENDPOINT` (predictor URL). After canary: `./openshift/discover-demo-env.sh --restart` so `INFERENCE_ENDPOINT_LATEST` / `_PREV` appear for the optional tag cell.
 7. **Promote or rollback** — `--action promote` (100% + refresh S3 baseline) or `rollback`
 
 ## Env
 
-Prefer workbench Connection injection for `AWS_*`. Also set/source:
+Prefer **cluster discovery** over hand-exports (active `oc` session):
 
-- `MODEL_REGISTRY_URL` (HTTPS registry route)
-- `MODEL_REGISTRY_VERIFY_SSL=false` on lab clusters if needed
-- `MLFLOW_*` via Notebook annotation (not hand-set URI alone)
+```bash
+./openshift/discover-demo-env.sh --restart
+```
 
-See `docs/env.md` and `.env` (gitignored).
+Workbench gets `MODEL_REGISTRY_URL`, `INFERENCE_*`, etc. from ConfigMap `xray-demo-env`. `AWS_*` from Connection. `MLFLOW_*` URI+auth from Notebook annotation `opendatahub.io/mlflow-instance=mlflow`.
 
+See `docs/env.md` and `.env` (gitignored) for S3 only.
 ## If blocked
 
 Use skill `deploy-xray-demo` → [troubleshooting.md](../deploy-xray-demo/troubleshooting.md).

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Render and apply the demo workbench PVC + Notebook.
+# Discovers MODEL_REGISTRY_URL / INFERENCE_* (etc.) into ConfigMap xray-demo-env.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,6 +39,11 @@ trap 'rm -rf "${TMPDIR_RENDER}"' EXIT
 
 render "${SCRIPT_DIR}/notebook-pvc.yaml" "${TMPDIR_RENDER}/pvc.yaml"
 render "${SCRIPT_DIR}/notebook.yaml" "${TMPDIR_RENDER}/notebook.yaml"
+
+# ConfigMap before Notebook so envFrom resolves on first start.
+echo "Discovering cluster demo env → ConfigMap/xray-demo-env"
+KSERVE_NAMESPACE="${NAMESPACE}" STORAGE_KEY="${CONNECTION_NAME}" \
+  "${REPO_ROOT}/openshift/discover-demo-env.sh"
 
 echo "Applying workbench PVC + Notebook in ${NAMESPACE}"
 echo "  image=${WORKBENCH_IMAGE}"

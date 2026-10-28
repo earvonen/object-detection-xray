@@ -24,4 +24,10 @@ export STORAGE_KEY="${STORAGE_KEY:-aws-connection-xray-models}"
 # export PIPELINE_ACTION="${PIPELINE_ACTION:-leave-canary}"
 
 echo "MODEL_REGISTRY_URL=${MODEL_REGISTRY_URL}"
-exec python3 pipelines/promote_deploy_canary.py "$@"
+python3 pipelines/promote_deploy_canary.py "$@"
+status=$?
+# Refresh INFERENCE_ENDPOINT / latest-/prev- tag URLs into the workbench ConfigMap.
+if [[ "$status" -eq 0 && -x ./openshift/discover-demo-env.sh ]]; then
+  ./openshift/discover-demo-env.sh --restart || true
+fi
+exit "$status"

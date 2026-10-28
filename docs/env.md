@@ -100,6 +100,16 @@ export AWS_S3_BUCKET=models
 
 Writes rendered manifests and `env.cluster.sh` under `.deploy/` (gitignored).
 
+### Auto-discovered workbench env
+
+`./openshift/discover-demo-env.sh` (also run by `deploy.sh` / `apply-notebook.sh`)
+reads the current `oc` session and applies ConfigMap `xray-demo-env`, which the
+Notebook mounts via `envFrom`. Re-run with `--restart` after the InferenceService
+or canary tags change so kernels pick up `INFERENCE_ENDPOINT` / tag URLs.
+
+Do **not** manually export `MODEL_REGISTRY_URL` or `INFERENCE_ENDPOINT` in notebooks
+when the ConfigMap is present. MLflow URI+auth still come only from the
+`opendatahub.io/mlflow-instance=mlflow` annotation (not the ConfigMap).
 ## KServe / pipeline
 
 | Variable | Example | Purpose |

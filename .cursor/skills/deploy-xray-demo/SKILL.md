@@ -31,12 +31,38 @@ Copy and tick:
 - [ ] .env present (gitignored) or AWS_* exported — see docs/env.md
 - [ ] KnativeServing Ready
 - [ ] ./deploy.sh --build-workbench --skip-isvc   # ns, Connection, MR RBAC, image, Notebook
-- [ ] Workbench Running; MLflow annotation opendatahub.io/mlflow-instance=mlflow
+- [ ] Workbench Running; MLflow annotation + ConfigMap xray-demo-env (MODEL_REGISTRY_URL, …)
 - [ ] notebooks/00_seed_baseline.ipynb  # weak model → …/baseline + ISVC Ready (before audience)
+- [ ] ./openshift/discover-demo-env.sh --restart   # if 00 did not already; fills INFERENCE_ENDPOINT
 - [ ] Notebooks 01→04 (train → select → export/register → stage=prod); do not retarget ISVC to candidate
 - [ ] ./pipelines/run-promote-deploy-canary.sh --action leave-canary  # expect two revisions/pods
-- [ ] notebooks/05_infer_served.ipynb (predictor URL)
+- [ ] ./openshift/discover-demo-env.sh --restart   # refresh latest-/prev- tag URLs for notebook 05
+- [ ] notebooks/05_infer_served.ipynb (uses injected INFERENCE_ENDPOINT)
 ```
+
+## Agent: discover env into the workbench
+
+When deploying (or after ISVC/canary changes), use the active `oc` session — **do not ask the user to paste URLs**.
+
+```bash
+./openshift/discover-demo-env.sh --restart
+```
+
+That writes `.deploy/env.cluster.sh` and applies ConfigMap `xray-demo-env` in the demo namespace. The Notebook mounts it via `envFrom` (`openshift/workbench/notebook.yaml`).
+
+| Var | Source |
+|-----|--------|
+| `MODEL_REGISTRY_URL` | Route `xray-model-registry-https` in `rhoai-model-registries` |
+| `MODEL_REGISTRY_VERIFY_SSL` | default `false` (lab) |
+| `INFERENCE_ENDPOINT` | ISVC `status.components.predictor.url` (when Ready) |
+| `INFERENCE_ENDPOINT_LATEST` / `_PREV` | ISVC traffic tag URLs (canary) |
+| `KSERVE_NAMESPACE`, `INFERENCE_SERVICE_NAME`, `REGISTERED_MODEL_NAME`, `STORAGE_KEY`, `S3_KEY_PREFIX`, `MLFLOW_EXPERIMENT_NAME` | defaults / deploy |
+
+**MLflow:** leave to Notebook annotation `opendatahub.io/mlflow-instance=mlflow` (URI + `kubernetes-namespaced` auth). Do not inject a bare `MLFLOW_TRACKING_URI` into the ConfigMap.
+
+**S3 / AWS_*:** Connection Secret only — never invent MinIO (workspace rule `s3-ask-user`).
+
+After ConfigMap updates, `--restart` deletes the workbench pod so kernels see new env (restart kernel or reconnect).
 
 ## Commands (repo root)
 
@@ -48,16 +74,17 @@ oc apply -f openshift/knative-serving.yaml
 # wait: oc get knativeserving knative-serving -n knative-serving
 
 ./deploy.sh --build-workbench --skip-isvc
+# deploy.sh / apply-notebook.sh call discover-demo-env.sh
 
 # Prefer notebook 00 before the live demo. Fallback after 03 only:
-# ./openshift/ensure-baseline-isvc.sh
+# ./openshift/ensure-baseline-isvc.sh   # also refreshes INFERENCE_* via discover
 
 # After notebook 04 stage=prod:
 ./pipelines/run-promote-deploy-canary.sh --action leave-canary
+./openshift/discover-demo-env.sh --restart   # tag routes for notebook 05
 ```
 
 `deploy.sh` sources `.env` when present; creates Connection Secret via `oc apply` YAML; applies Notebook/PVC unless `--skip-notebook`.
-
 ## Auth gotchas (do not re-debug from scratch)
 
 **MLflow:** Public URI needs Kubernetes auth. Prefer Notebook annotation `opendatahub.io/mlflow-instance=mlflow` (injects `MLFLOW_TRACKING_URI` + `MLFLOW_TRACKING_AUTH=kubernetes-namespaced`). Bare URI without token → `UNAUTHENTICATED`. Disable Ultralytics auto-MLflow (`settings.update({"mlflow": False})`) so runs stay in experiment `xray-detector`.
@@ -74,8 +101,7 @@ Prefer **notebook 00** to seed `…/baseline` and apply the ISVC before the live
 
 **OVMS layout:** S3 prefix must contain `1/model.onnx`. Candidate: `…/<run_id>/1/model.onnx`. Baseline: `…/baseline/1/model.onnx`.
 
-**Smoke test:** use the **predictor** HTTPS URL (`status.components.predictor.url`), not `status.url` (often 503). See [troubleshooting.md](troubleshooting.md).
-
+**Smoke test:** use the **predictor** URL (`INFERENCE_ENDPOINT` / `status.components.predictor.url`), not `status.url` (often 503). See [troubleshooting.md](troubleshooting.md).
 ## Failure reference
 
 For event messages and fixes, read [troubleshooting.md](troubleshooting.md).

@@ -30,6 +30,14 @@ echo "Using $($PYTHON -c 'import sys; print(sys.executable)') (Python ${PY_VER})
   pandas \
   "kfp>=2.0.0,<3"
 
+# Optional: ONNX graph slim (Ultralytics AutoUpdate). Locked RHAI indexes often lack it;
+# export still succeeds without slim.
+if "$PYTHON" -m pip install "onnxslim>=0.1.82"; then
+  echo "onnxslim installed."
+else
+  echo "warning: onnxslim not installed; ONNX export works without graph slim." >&2
+fi
+
 # Optional: AWS CLI for upload-best-onnx-to-s3.sh. Often unavailable in locked-down
 # workbench pip indexes; notebooks/03 use boto3 instead.
 if "$PYTHON" -m pip install awscli; then

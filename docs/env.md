@@ -117,6 +117,7 @@ Writes rendered manifests and `env.cluster.sh` under `.deploy/` (gitignored).
 |----------|---------|---------|
 | `DEMO_EPOCHS` | `3` | Short training runs for live demos |
 | `DEMO_IMGSZ` | `640` | Training image size |
+| `INFER_IMGSZ` | *(from model metadata)* | Optional override for notebook 05; baseline seed is `320` |
 | `DEMO_MODEL` | `yolov8n.pt` | Base checkpoint |
 | `DEMO_BATCH` | `8` | Train batch size (lower if the 16Gi workbench OOMs; try `4`) |
 | `DEMO_WORKERS` | `2` | DataLoader workers (Ultralytics default `8` often blows host RAM) |

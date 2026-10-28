@@ -20,7 +20,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:${PATH:-}"
+# Keep system tools (oc) reachable from Jupyter terminals, but do not put
+# /usr/bin ahead of the workbench venv — that made `python3` resolve to a
+# system interpreter without boto3 (install-dependencies installs into
+# /opt/app-root). Prefer PYTHON from the caller (notebook sets sys.executable).
+export PATH="${PATH:-}:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
+if [[ -n "${PYTHON:-}" && -x "${PYTHON}" ]]; then
+  :
+elif [[ -x /opt/app-root/bin/python3 ]]; then
+  PYTHON=/opt/app-root/bin/python3
+else
+  PYTHON="$(command -v python3)"
+fi
+if [[ -z "${PYTHON}" ]]; then
+  echo "error: python3 not found" >&2
+  exit 1
+fi
 
 FORCE=0
 for arg in "$@"; do
@@ -69,8 +84,9 @@ fi
 export SOURCE_PATH BASELINE_PATH
 echo "Baseline path: ${BASELINE_PATH}"
 echo "Source path:   ${SOURCE_PATH:-"(auto if baseline missing)"}"
+echo "Python:        ${PYTHON}"
 
-python3 - <<'PY'
+"${PYTHON}" - <<'PY'
 import os, sys
 sys.path.insert(0, ".")
 from src.s3_utils import ensure_baseline_model

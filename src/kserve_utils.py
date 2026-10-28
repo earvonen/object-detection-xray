@@ -10,7 +10,10 @@ from typing import Any, Optional
 
 def _oc(*args: str) -> str:
     cmd = ["oc", *args]
-    proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        raise RuntimeError(f"oc {' '.join(args[:6])}… failed ({proc.returncode}): {detail}")
     return proc.stdout
 
 

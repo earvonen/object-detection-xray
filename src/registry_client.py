@@ -261,7 +261,7 @@ class ModelRegistryClient:
             author=author,
             custom_properties=props,
         )
-        path = storage_path or _path_from_s3_uri(s3_uri)
+        path = _ovms_storage_path(storage_path or s3_uri)
         artifact = self.create_model_artifact(
             model_version_id=str(version["id"]),
             name="model.onnx",
@@ -308,7 +308,10 @@ class ModelRegistryClient:
             "version_name": version.get("name"),
             "uri": artifact.get("uri"),
             "storage_key": artifact.get("storageKey"),
-            "storage_path": artifact.get("storagePath") or _path_from_s3_uri(artifact.get("uri") or ""),
+            # OVMS model-repo root (strip trailing /1/model.onnx or /model.onnx).
+            "storage_path": _ovms_storage_path(
+                artifact.get("storagePath") or artifact.get("uri") or ""
+            ),
             "mlflow_run_id": props.get("mlflow_run_id"),
             "custom_properties": props,
             "artifact": artifact,
@@ -380,4 +383,13 @@ def _path_from_s3_uri(s3_uri: str) -> str:
         return s3_uri
     without = s3_uri[len("s3://") :]
     _, _, path = without.partition("/")
+    return path
+
+
+def _ovms_storage_path(uri_or_path: str) -> str:
+    """KServe/OVMS storage.path: model-repo prefix, not the .onnx object key."""
+    path = _path_from_s3_uri(uri_or_path) if uri_or_path.startswith("s3://") else uri_or_path
+    for suffix in ("/1/model.onnx", "/model.onnx"):
+        if path.endswith(suffix):
+            return path[: -len(suffix)]
     return path

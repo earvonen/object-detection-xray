@@ -152,6 +152,10 @@ subjects:
   - kind: ServiceAccount
     name: ${PIPELINE_SA}
     namespace: ${NAMESPACE}
+  # Workbench terminal runs promote script with this SA.
+  - kind: ServiceAccount
+    name: object-detection-workbench
+    namespace: ${NAMESPACE}
 EOF
 apply_yaml "${OUT_DIR}/sa-rbac.yaml"
 

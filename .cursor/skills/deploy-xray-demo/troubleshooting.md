@@ -15,6 +15,8 @@
 | Create workbench grayed out | ImageStream missing GPU recommend annotations | `bash openshift/workbench/annotate-imagestream.sh` |
 | ISVC `Ready=True` but `/v2/models/xray-detector` → version/name not found | OVMS needs numeric version dir; flat `model.onnx` at repo root → “No version found for model in path: /mnt/models” | S3 layout must be `{STORAGE_PATH}/1/model.onnx`. `src/s3_utils.versioned_key` uploads that. For older flat uploads: copy object to `…/<run_id>/1/model.onnx`, delete predictor pod so storage-initializer re-pulls. Confirm: `oc exec … -c kserve-container -- ls -laR /mnt/models` shows `/mnt/models/1/model.onnx` and logs say version AVAILABLE |
 | External `status.url` (often `http://…`) returns OpenShift HTML **503** | Route / gateway mismatch; ISVC status URL is not always the working public path | Use **predictor** URL (HTTPS): `oc get isvc xray-detector -n object-detection-xray -o jsonpath='{.status.components.predictor.url}'` then `…/v2/models/xray-detector/infer`. Ready=True ≠ model loaded — check OVMS logs first |
+| `run-promote-deploy-canary.sh` fails on `oc patch inferenceservice` (exit 1 / Forbidden) | Workbench SA lacked ISVC patch RBAC (only pipeline SA was bound) | `oc apply -f openshift/rbac-workbench-isvc-patcher.yaml` (cluster-admin). Pull updated `src/` so `storage_path` strips `/model.onnx` before patch |
+| Canary patches `storage.path` ending in `model.onnx` | MR artifact stored object key, not OVMS repo root | `resolve_prod` now normalizes via `_ovms_storage_path`; re-run promote after pulling `registry_client.py` |
 
 ## Useful probes
 

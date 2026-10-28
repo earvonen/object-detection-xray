@@ -23,7 +23,9 @@ Assumes `deploy-xray-demo` bootstrap is done. Work in project `object-detection-
    `STORAGE_PATH=object-detection/xray-detector/<run_id> ./openshift/apply-inferenceservice.sh`  
    - Confirm OVMS loaded version 1 (`/mnt/models/1/model.onnx`); Ready alone is not enough
 5. **04_promote_prod** — `stage=prod` → `.demo_state.json` (`SELECTED_VERSION_ID`)
-6. **Canary** — `./pipelines/run-promote-deploy-canary.sh --action leave-canary`
+6. **Canary** — `./pipelines/run-promote-deploy-canary.sh --action leave-canary`  
+   - Needs ISVC patch RBAC on workbench SA (`openshift/rbac-workbench-isvc-patcher.yaml`)  
+   - Pull latest `src/` so `storage_path` is OVMS repo root (not `…/model.onnx`)
 7. **05_infer_served** — set `INFERENCE_ENDPOINT` to **predictor** URL (`status.components.predictor.url`), not `status.url` (often 503)
 8. **Promote or rollback** — same script `--action promote` or `rollback`
 

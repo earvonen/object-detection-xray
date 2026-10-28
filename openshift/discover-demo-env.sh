@@ -80,18 +80,19 @@ if oc get inferenceservice "${ISVC_NAME}" -n "${NAMESPACE}" >/dev/null 2>&1; the
       -o jsonpath='{.status.components.predictor.url}' 2>/dev/null || true)"
   fi
   # Tag routes from canary traffic status (enable-tag-routing).
-  TRAFFIC_JSON="$(oc get inferenceservice "${ISVC_NAME}" -n "${NAMESPACE}" \
-    -o jsonpath='{.status.components.predictor.traffic}' 2>/dev/null || true)"
-  if [[ -n "${TRAFFIC_JSON}" && "${TRAFFIC_JSON}" != "null" ]]; then
-    eval "$(TRAFFIC_JSON="${TRAFFIC_JSON}" python3 - <<'PY'
+  # Use full -o json — jsonpath on .traffic often emits invalid JSON (no commas).
+  ISVC_JSON="$(oc get inferenceservice "${ISVC_NAME}" -n "${NAMESPACE}" -o json 2>/dev/null || true)"
+  if [[ -n "${ISVC_JSON}" ]]; then
+    eval "$(ISVC_JSON="${ISVC_JSON}" python3 - <<'PY'
 import json, os, shlex
-raw = os.environ.get("TRAFFIC_JSON") or "[]"
 try:
-    traffic = json.loads(raw)
+    doc = json.loads(os.environ.get("ISVC_JSON") or "{}")
 except json.JSONDecodeError:
-    traffic = []
+    doc = {}
+predictor = ((doc.get("status") or {}).get("components") or {}).get("predictor") or {}
+traffic = predictor.get("traffic") or []
 latest = prev = ""
-for t in traffic or []:
+for t in traffic:
     tag = (t.get("tag") or "").lower()
     url = (t.get("url") or "").rstrip("/")
     if not url:

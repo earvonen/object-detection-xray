@@ -7,10 +7,12 @@ on a model version (not an MLflow Model Registry alias).
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 from typing import Any, Optional
 
 import requests
+import urllib3
 
 _SA_TOKEN_PATH = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
 
@@ -61,6 +63,11 @@ class ModelRegistryClient:
         self.verify_ssl = verify_ssl
         self.timeout = timeout
         self.api = f"{self.base_url}/api/model_registry/v1alpha3"
+        # Lab clusters set MODEL_REGISTRY_VERIFY_SSL=false; without this, Jupyter
+        # paints InsecureRequestWarning in red and looks like the cell failed.
+        if not self.verify_ssl:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}

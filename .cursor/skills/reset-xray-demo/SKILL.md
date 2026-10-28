@@ -42,5 +42,5 @@ That script:
 | Goal | Command |
 |------|---------|
 | Only MLflow + Model Registry data | `./openshift/reset-mlflow-registry.sh` |
-| Only namespace + RoleBinding | `./openshift/teardown-demo.sh` (interactive) |
+| MLflow/MR wipe + namespace + RoleBinding | `./openshift/teardown-demo.sh` (interactive; `--yes` for agents) |
 | Full reset | `./openshift/reset-demo.sh --yes` |

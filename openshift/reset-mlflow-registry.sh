@@ -96,13 +96,61 @@ def mlflow(method, path, body=None):
 
 
 print("=== MLflow ===")
+
+
+def search_experiments(view_type: str):
+    """Paginate experiment search (view may exceed a single page)."""
+    out = []
+    page_token = None
+    while True:
+        body = {"max_results": 100, "view_type": view_type}
+        if page_token:
+            body["page_token"] = page_token
+        code, data = mlflow("POST", "/api/2.0/mlflow/experiments/search", body)
+        if code >= 400:
+            print(f"search {view_type} failed: {code} {data}")
+            return out
+        out.extend(data.get("experiments") or [])
+        page_token = (data or {}).get("next_page_token")
+        if not page_token:
+            return out
+
+
+def delete_all_runs(eid: str) -> int:
+    """Soft-delete every run in the experiment (active + already-listed deleted).
+
+    Paginate with view_type=ALL — a bare search can miss pages and leave demo
+    runs visible after teardown.
+    """
+    deleted = 0
+    page_token = None
+    while True:
+        body = {"experiment_ids": [eid], "max_results": 100, "view_type": "ALL"}
+        if page_token:
+            body["page_token"] = page_token
+        code, runs_data = mlflow("POST", "/api/2.0/mlflow/runs/search", body)
+        if code >= 400:
+            print(f"  runs/search failed for {eid}: {code} {runs_data}")
+            return deleted
+        runs = (runs_data or {}).get("runs") or []
+        for r in runs:
+            info = r.get("info") or {}
+            rid = info.get("run_id")
+            if not rid:
+                continue
+            if info.get("lifecycle_stage") == "deleted":
+                continue
+            c, _ = mlflow("POST", "/api/2.0/mlflow/runs/delete", {"run_id": rid})
+            print(f"  delete run {rid[:8]}: {c}")
+            deleted += 1
+        page_token = (runs_data or {}).get("next_page_token")
+        if not page_token:
+            return deleted
+
+
 # Include deleted so we can still purge/rename leftovers
 for view in ("ACTIVE_ONLY", "DELETED_ONLY"):
-    code, data = mlflow("POST", "/api/2.0/mlflow/experiments/search", {"max_results": 100, "view_type": view})
-    if code >= 400:
-        print(f"search {view} failed: {code} {data}")
-        continue
-    exps = data.get("experiments") or []
+    exps = search_experiments(view)
     print(f"{view}: {[(e.get('experiment_id'), e.get('name'), e.get('lifecycle_stage')) for e in exps]}")
     for e in exps:
         eid = e["experiment_id"]
@@ -110,17 +158,13 @@ for view in ("ACTIVE_ONLY", "DELETED_ONLY"):
         if e.get("lifecycle_stage") == "deleted":
             code, _ = mlflow("POST", "/api/2.0/mlflow/experiments/restore", {"experiment_id": eid})
             print(f"  restore {eid} ({name}): {code}")
-        code, runs_data = mlflow(
-            "POST",
-            "/api/2.0/mlflow/runs/search",
-            {"experiment_ids": [eid], "max_results": 100},
-        )
-        runs = (runs_data or {}).get("runs") or []
-        for r in runs:
-            rid = r["info"]["run_id"]
-            c, _ = mlflow("POST", "/api/2.0/mlflow/runs/delete", {"run_id": rid})
-            print(f"  delete run {rid[:8]}: {c}")
-        new_name = name if name.endswith("-archived-reset") else f"{name}-archived-reset"
+        n = delete_all_runs(eid)
+        print(f"  deleted {n} active run(s) in experiment {eid}")
+        # Unique suffix so rename does not collide with a prior *-archived-reset.
+        if "-archived-reset" in name:
+            new_name = name
+        else:
+            new_name = f"{name}-archived-reset-{eid}"
         if new_name != name:
             c, _ = mlflow("POST", "/api/2.0/mlflow/experiments/update", {"experiment_id": eid, "new_name": new_name})
             print(f"  rename {name} -> {new_name}: {c}")

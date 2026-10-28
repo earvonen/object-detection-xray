@@ -80,8 +80,8 @@ Clone or sync this repo into the workbench so `images/data.yaml` and `notebooks/
 | Goal | Command |
 |------|---------|
 | Wipe MLflow runs + clear `stage=prod` (keep LIVE model) | `./openshift/reset-mlflow-registry.sh` |
-| Delete demo namespace + MR RoleBinding | `./openshift/teardown-demo.sh` |
-| Full reset (data + namespace) | `./openshift/reset-demo.sh` |
+| Wipe MLflow/MR data, then delete demo namespace + MR RoleBinding | `./openshift/teardown-demo.sh` |
+| Full reset (same as teardown; also used by agents with `--yes`) | `./openshift/reset-demo.sh` |
 
 ## Demo flow (presenter — notebooks only)
 

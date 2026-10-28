@@ -135,9 +135,18 @@ metadata:
   name: xray-isvc-patcher
   namespace: ${NAMESPACE}
 rules:
+  # notebook 00 / ensure-baseline-isvc applies ServingRuntime + InferenceService;
+  # canary/promote patch InferenceService only.
   - apiGroups: ["serving.kserve.io"]
-    resources: ["inferenceservices"]
+    resources: ["inferenceservices", "servingruntimes"]
     verbs: ["get", "list", "watch", "patch", "update", "create"]
+  # discover-demo-env.sh --restart (ConfigMap + workbench pod delete)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

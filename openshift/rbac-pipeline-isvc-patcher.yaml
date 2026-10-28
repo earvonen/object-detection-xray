@@ -6,8 +6,14 @@ metadata:
   namespace: REPLACE_ME_NAMESPACE
 rules:
   - apiGroups: ["serving.kserve.io"]
-    resources: ["inferenceservices"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+    resources: ["inferenceservices", "servingruntimes"]
+    verbs: ["get", "list", "watch", "patch", "update", "create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -73,6 +73,10 @@ STORAGE_PATH=object-detection/xray-detector/<run_id> \
 
 Create ISVC **after** notebook 03 (ONNX in S3), **before** canary script. Pipeline only patches an existing ISVC.
 
+**OVMS layout:** S3 prefix must contain `1/model.onnx` (not a flat `model.onnx`). Notebook 03 via `src/s3_utils.versioned_key` writes `object-detection/xray-detector/<run_id>/1/model.onnx`; `STORAGE_PATH` is the parent of `1/`.
+
+**Smoke test:** use the **predictor** HTTPS URL (`status.components.predictor.url`), not `status.url` (often 503). See [troubleshooting.md](troubleshooting.md).
+
 ## Failure reference
 
 For event messages and fixes, read [troubleshooting.md](troubleshooting.md).

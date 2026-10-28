@@ -22,7 +22,7 @@ done
 
 echo "This will:"
 echo "  1. Delete MLflow runs; rename+soft-delete experiments (workspace ${NAMESPACE})"
-echo "  2. Archive Model Registry model '${REGISTERED_MODEL_NAME:-xray-detector}' (hard delete often unsupported)"
+echo "  2. Reset Model Registry model '${REGISTERED_MODEL_NAME:-xray-detector}' (keep LIVE; clear stage=prod — API has no hard delete)"
 echo "  3. Delete RoleBinding xray-workbench-model-registry in rhoai-model-registries"
 echo "  4. Delete Namespace/${NAMESPACE}"
 echo "S3 and KnativeServing are left alone."

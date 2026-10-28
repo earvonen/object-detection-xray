@@ -18,12 +18,13 @@ Assumes `deploy-xray-demo` bootstrap is done. Work in project `object-detection-
 2. **02_evaluate_select** — pick best run → `.demo_state.json` (`SELECTED_RUN_ID`)
 3. **03_export_register** — ONNX → S3 → Model Registry `stage=candidate`  
    - Needs `MODEL_REGISTRY_URL` + SA/RBAC auth; Connection/`AWS_*` for upload  
-   - Restart kernel if registry client was just updated
+   - Uploads `…/<run_id>/1/model.onnx` (OVMS version dir); restart kernel if client/`s3_utils` just updated
 4. **Apply/update ISVC** if not yet pointing at this run’s prefix:
-   `STORAGE_PATH=object-detection/xray-detector/<run_id> ./openshift/apply-inferenceservice.sh`
+   `STORAGE_PATH=object-detection/xray-detector/<run_id> ./openshift/apply-inferenceservice.sh`  
+   - Confirm OVMS loaded version 1 (`/mnt/models/1/model.onnx`); Ready alone is not enough
 5. **04_promote_prod** — `stage=prod` → `.demo_state.json` (`SELECTED_VERSION_ID`)
 6. **Canary** — `./pipelines/run-promote-deploy-canary.sh --action leave-canary`
-7. **05_infer_served** — hit `INFERENCE_ENDPOINT` / ISVC status URL
+7. **05_infer_served** — set `INFERENCE_ENDPOINT` to **predictor** URL (`status.components.predictor.url`), not `status.url` (often 503)
 8. **Promote or rollback** — same script `--action promote` or `rollback`
 
 ## Env

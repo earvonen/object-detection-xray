@@ -13,6 +13,8 @@
 | Connection empty / no `AWS_*` in pod | `opendatahub.io/connections` not set or workbench not restarted | Set annotation to `namespace/secret-name` (webhook rejects bare secret name); stop/start Notebook |
 | Notebook admission: invalid secret reference format | Connection annotation missing namespace | Use `object-detection-xray/aws-connection-xray-models` |
 | Create workbench grayed out | ImageStream missing GPU recommend annotations | `bash openshift/workbench/annotate-imagestream.sh` |
+| ISVC `Ready=True` but `/v2/models/xray-detector` → version/name not found | OVMS needs numeric version dir; flat `model.onnx` at repo root → “No version found for model in path: /mnt/models” | S3 layout must be `{STORAGE_PATH}/1/model.onnx`. `src/s3_utils.versioned_key` uploads that. For older flat uploads: copy object to `…/<run_id>/1/model.onnx`, delete predictor pod so storage-initializer re-pulls. Confirm: `oc exec … -c kserve-container -- ls -laR /mnt/models` shows `/mnt/models/1/model.onnx` and logs say version AVAILABLE |
+| External `status.url` (often `http://…`) returns OpenShift HTML **503** | Route / gateway mismatch; ISVC status URL is not always the working public path | Use **predictor** URL (HTTPS): `oc get isvc xray-detector -n object-detection-xray -o jsonpath='{.status.components.predictor.url}'` then `…/v2/models/xray-detector/infer`. Ready=True ≠ model loaded — check OVMS logs first |
 
 ## Useful probes
 
@@ -23,6 +25,20 @@ oc get modelregistry -A
 oc get servingruntime,inferenceservice,ksvc -n object-detection-xray
 oc get pods -A -o json | # filter nvidia.com/gpu requests
 oc get rolebinding -n rhoai-model-registries | rg xray
+# OVMS actually loaded?
+oc logs -n object-detection-xray -l serving.kserve.io/inferenceservice=xray-detector -c kserve-container --tail=40
+oc exec -n object-detection-xray deploy/$(oc get deploy -n object-detection-xray -o name | rg predictor | head -1) \
+  -c kserve-container -- ls -laR /mnt/models
+```
+
+## Smoke-test infer (after ISVC Ready + model AVAILABLE)
+
+```bash
+PRED=$(oc get inferenceservice xray-detector -n object-detection-xray \
+  -o jsonpath='{.status.components.predictor.url}')
+# Prefer $PRED (HTTPS predictor), not status.url, for /v2/.../infer
+# Payload: FP32 NCHW [1,3,640,640] input name "images" (see notebooks/05_infer_served.ipynb)
+# Expect HTTP 200 and output0 shape [1,9,8400] for this YOLO ONNX
 ```
 
 ## URLs (cluster-specific)
@@ -32,5 +48,6 @@ Discover, do not hardcode forever:
 ```bash
 oc get mlflow -A -o jsonpath='{range .items[*]}{.status.url}{"\n"}{end}'
 oc get route -n rhoai-model-registries -o name   # *-https REST
-oc get inferenceservice -n object-detection-xray -o jsonpath='{.items[0].status.url}{"\n"}'
+oc get inferenceservice xray-detector -n object-detection-xray \
+  -o jsonpath='status={.status.url}{"\n"}predictor={.status.components.predictor.url}{"\n"}'
 ```

@@ -281,6 +281,8 @@ class ModelRegistryClient:
         if not registered:
             return None
         for version in self.list_model_versions(str(registered["id"])):
+            if version.get("state", "LIVE") == "ARCHIVED":
+                continue
             props = _from_custom_properties(version.get("customProperties") or {})
             if props.get("stage") == "prod":
                 return version

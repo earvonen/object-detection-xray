@@ -22,8 +22,9 @@ def _client():
 
 
 def versioned_key(run_id: str, prefix: Optional[str] = None, filename: str = "model.onnx") -> str:
+    """OVMS expects ``{prefix}/{run_id}/1/model.onnx`` (numeric version dir)."""
     base = prefix or os.environ.get("S3_KEY_PREFIX", "object-detection/xray-detector")
-    return f"{base.rstrip('/')}/{run_id}/{filename}"
+    return f"{base.rstrip('/')}/{run_id}/1/{filename}"
 
 
 def upload_file(local_path: str | Path, key: str, bucket: Optional[str] = None) -> str:
@@ -38,9 +39,13 @@ def upload_file(local_path: str | Path, key: str, bucket: Optional[str] = None) 
 
 
 def storage_path_from_uri(s3_uri: str) -> str:
-    """Return object key/path without the s3://bucket/ prefix."""
+    """Return KServe/OVMS model-repo prefix (no s3://bucket, no ``1/model.onnx``)."""
     if not s3_uri.startswith("s3://"):
-        return s3_uri
-    without = s3_uri[len("s3://") :]
-    _, _, path = without.partition("/")
+        path = s3_uri
+    else:
+        without = s3_uri[len("s3://") :]
+        _, _, path = without.partition("/")
+    for suffix in ("/1/model.onnx", "/model.onnx"):
+        if path.endswith(suffix):
+            return path[: -len(suffix)]
     return path

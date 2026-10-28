@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Clear demo MLflow experiments/runs and archive Model Registry entries.
-# Hard DELETE is not supported on this Model Registry API; models are ARCHIVED.
+# Clear demo MLflow experiments/runs and reset Model Registry prod stage.
+# Model Registry hard DELETE is not supported (405; Allow: GET, PATCH only).
+# Do NOT archive the registered model — ARCHIVED hides it in the UI while
+# notebook 03 still attaches new versions under that same model id.
+# Instead: keep/restore LIVE, clear stage=prod on versions.
 # MLflow permanent-delete is unavailable — runs are deleted, experiments renamed
 # then soft-deleted so names like xray-detector are free again.
 #
@@ -125,35 +128,51 @@ for view in ("ACTIVE_ONLY", "DELETED_ONLY"):
         print(f"  soft-delete {eid}: {c}")
 
 print("=== Model Registry ===")
+print("(API has no hard DELETE — keep model LIVE so notebook versions stay visible)")
 code, data = req(f"{MR}/api/model_registry/v1alpha3/registered_models")
 if code >= 400:
     print(f"list models failed: {code} {data}")
 else:
     items = data.get("items") or data if isinstance(data, list) else []
+    found = False
     for m in items:
         mid, name, state = m.get("id"), m.get("name"), m.get("state")
         if name != MODEL:
             continue
+        found = True
         print(f"model id={mid} name={name} state={state}")
+        if state != "LIVE":
+            c, out = req(
+                f"{MR}/api/model_registry/v1alpha3/registered_models/{mid}",
+                method="PATCH",
+                body={"state": "LIVE"},
+            )
+            print(f"  restore model LIVE: {c} state={out.get('state')}")
         code, vers = req(f"{MR}/api/model_registry/v1alpha3/registered_models/{mid}/versions")
         versions = (vers or {}).get("items") or []
         for v in versions:
             vid = v.get("id")
+            vstate = v.get("state")
+            props = dict(v.get("customProperties") or {})
+            stage = (props.get("stage") or {}).get("string_value")
+            patch = {}
+            if vstate != "LIVE":
+                patch["state"] = "LIVE"
+            if stage == "prod":
+                props["stage"] = {"metadataType": "MetadataStringValue", "string_value": "reset"}
+                patch["customProperties"] = props
+            if not patch:
+                print(f"  version {vid}: already LIVE, stage={stage!r} (no change)")
+                continue
             c, out = req(
                 f"{MR}/api/model_registry/v1alpha3/model_versions/{vid}",
                 method="PATCH",
-                body={"state": "ARCHIVED"},
+                body=patch,
             )
-            print(f"  archive version {vid}: {c}")
-        c, out = req(
-            f"{MR}/api/model_registry/v1alpha3/registered_models/{mid}",
-            method="PATCH",
-            body={"state": "ARCHIVED"},
-        )
-        print(f"  archive model {mid}: {c} state={out.get('state')}")
-        # Hard delete often 405 — try anyway
-        c, _ = req(f"{MR}/api/model_registry/v1alpha3/registered_models/{mid}", method="DELETE")
-        print(f"  delete model {mid}: {c} (405 means API does not support hard delete)")
+            new_stage = ((out.get("customProperties") or {}).get("stage") or {}).get("string_value")
+            print(f"  version {vid}: {c} state={out.get('state')} stage={new_stage!r}")
+    if not found:
+        print(f"no registered model named {MODEL!r} (nothing to reset)")
 
 print("Done (MLflow + Model Registry).")
 PY

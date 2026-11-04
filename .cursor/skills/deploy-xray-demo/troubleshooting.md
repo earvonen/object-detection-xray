@@ -2,7 +2,12 @@
 
 | Symptom | Cause | Fix |
 |---------|--------|-----|
-| `ServerlessModeRejected` / Knative Services not available | Serverless operator installed but no `KnativeServing` CR | `oc apply -f openshift/knative-serving.yaml`; wait Ready; recreate ISVC; restart `kserve-controller-manager` / `odh-model-controller` if still cached |
+| `oc` → `Unable to connect … Forbidden` from agent | Cursor sandbox blocking API | Re-run `oc` with full permissions (`all`); never treat as cluster auth failure |
+| Fresh OpenTLC: no `mlflow` CRD / `oc get mlflow` empty | DSC `mlflowoperator: Removed` | [platform-bootstrap.md](platform-bootstrap.md) §2–4 |
+| MLflow CR rejected: `serveArtifacts` / `defaultArtifactRoot` | Hand-rolled / outdated docs snippet | `oc apply -f openshift/mlflow.yaml` (or `./openshift/ensure-platform.sh`) |
+| Only `default-modelregistry` Ready; no REST route / Role | Platform component ≠ registry instance | `./openshift/ensure-platform.sh` → `openshift/model-registry-xray.yaml` |
+| ConfigMap `MODEL_REGISTRY_URL` points at another sandbox | Stale `.env` from prior OpenTLC | Re-run `discover-demo-env.sh` (prefers live routes); rewrite `.env` hosts |
+| `ServerlessModeRejected` / Knative Services not available | No `KnativeServing`, **or** KServe started before Knative and cached “unavailable” | `./openshift/ensure-platform.sh --wait` (applies Knative + **restarts** kserve/odh-model controllers). Then delete/recreate ISVC or re-run notebook 00 / `ensure-baseline-isvc.sh --force`. Do **not** create ISVC until after that restart. |
 | `no runtime found … model type: {onnx}` | No ServingRuntime / onnx not autoSelect | `oc apply -f openshift/servingruntime-ovms.yaml`; set `spec.predictor.model.runtime: kserve-ovms` |
 | ISVC Pending / workbench `Insufficient nvidia.com/gpu` | Single GPU held by another pod | Find GPU consumers cluster-wide; undeploy e.g. leftover Llama ISVC |
 | MLflow `Missing Authorization header` | No K8s auth | Annotate Notebook `opendatahub.io/mlflow-instance=mlflow`, stop/start workbench |
@@ -24,10 +29,12 @@
 
 ```bash
 oc get knativeserving -n knative-serving
-oc get mlflow -A
-oc get modelregistry -A
+oc get mlflow -A -o wide
+oc get mr -n rhoai-model-registries
+oc get role registry-user-xray-model-registry -n rhoai-model-registries
+oc get route xray-model-registry-https -n rhoai-model-registries
+oc get cm xray-demo-env -n object-detection-xray -o jsonpath='{.data.MODEL_REGISTRY_URL}{"\n"}'
 oc get servingruntime,inferenceservice,ksvc -n object-detection-xray
-oc get pods -A -o json | # filter nvidia.com/gpu requests
 oc get rolebinding -n rhoai-model-registries | rg xray
 # OVMS actually loaded?
 oc logs -n object-detection-xray -l serving.kserve.io/inferenceservice=xray-detector -c kserve-container --tail=40

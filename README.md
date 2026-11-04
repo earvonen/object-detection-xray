@@ -31,8 +31,8 @@ Jupyter workbench
 
 ## Prerequisites (cluster)
 
-- OpenShift AI with **MLflow**, **Model Registry**, and **single-model serving** (DSP optional)
-- KServe in **Advanced / Serverless** mode + a **KnativeServing** instance (required for `canaryTrafficPercent`)
+- OpenShift AI with KServe / workbenches (DSP optional). Fresh labs: `./openshift/ensure-platform.sh` for **MLflow**, **Model Registry** instance, and **KnativeServing**
+- KServe in **Advanced / Serverless** mode (canary needs KnativeServing)
 - S3-compatible object storage + project Connection (you supply credentials — see below)
 - GPU node recommended for live training; CPU + short knobs or warm-start also works
 
@@ -42,16 +42,17 @@ Environment variables: [`docs/env.md`](docs/env.md).
 
 ### Cluster bootstrap (with `oc` login)
 
-Platform components (MLflow, Model Registry, KServe Serverless / KnativeServing) must already exist.
+On a fresh lab, enable platform pieces first (or pass `--ensure-platform`): KnativeServing, MLflow operator + CR (`openshift/mlflow.yaml`), and Model Registry instance `xray-model-registry` (`openshift/model-registry-xray.yaml`). See `./openshift/ensure-platform.sh`.
+
 `deploy.sh` creates project **`object-detection-xray`**, Connection Secret (if `AWS_*` set), Model Registry + ISVC patch RBAC, workbench image/Notebook, and discovers cluster URLs into ConfigMap **`xray-demo-env`**.
 
 ```bash
 oc login ...
-# Prefer a gitignored .env with AWS_* (see docs/env.md)
+# Prefer a gitignored .env with AWS_* (see docs/env.md). Rewrite apps.* hosts when switching OpenTLC sandboxes.
 set -a && source .env && set +a
 
 # Skip ISVC until notebook 00 seeds …/baseline (canary needs a different path later)
-./deploy.sh --build-workbench --skip-isvc
+./deploy.sh --ensure-platform --build-workbench --skip-isvc
 
 # Optional: re-discover URLs after the ISVC exists
 ./openshift/discover-demo-env.sh --restart

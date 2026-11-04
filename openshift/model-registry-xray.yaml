@@ -1,0 +1,23 @@
+# Demo Model Registry instance (not the platform component CR default-modelregistry).
+# Requires Secret xray-model-registry-db with key database-password in this namespace
+# (created by ./openshift/ensure-platform.sh).
+#
+# Names matter for the demo: Role registry-user-xray-model-registry and route
+# xray-model-registry-https are what deploy.sh / discover-demo-env.sh expect.
+apiVersion: modelregistry.opendatahub.io/v1beta1
+kind: ModelRegistry
+metadata:
+  name: xray-model-registry
+  namespace: rhoai-model-registries
+  labels:
+    app.kubernetes.io/part-of: object-detection-xray
+spec:
+  postgres:
+    generateDeployment: true
+    database: model_registry
+    username: mlmduser
+    passwordSecret:
+      name: xray-model-registry-db
+      key: database-password
+  rest:
+    serviceRoute: enabled

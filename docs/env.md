@@ -81,8 +81,17 @@ Production designation is the custom property `stage=prod` on a model version
 ## Cluster bootstrap (`./deploy.sh`)
 
 With an active `oc` login, bootstrap the demo project (default namespace
-`object-detection-xray`). Platform components (MLflow, Model Registry, DSP,
-KServe) must already be installed.
+`object-detection-xray`). On a fresh OpenTLC / RHOAI cluster, also ensure
+platform pieces (KnativeServing, MLflow CR, Model Registry instance):
+
+```bash
+./openshift/ensure-platform.sh --wait
+# or: ./deploy.sh --ensure-platform --build-workbench --skip-isvc
+```
+
+Manifests: `openshift/knative-serving.yaml`, `openshift/mlflow.yaml` (lab sqlite —
+requires `serveArtifacts: true` with `file://` artifacts on RHOAI 3.5+),
+`openshift/model-registry-xray.yaml`.
 
 ```bash
 export AWS_ACCESS_KEY_ID=...
@@ -95,10 +104,15 @@ export AWS_S3_BUCKET=models
 # Optional override:
 # export STORAGE_KEY=aws-connection-xray-models
 # export BASELINE_PATH=object-detection/xray-detector/baseline
-./deploy.sh
+./deploy.sh --build-workbench --skip-isvc
 ```
 
 Writes rendered manifests and `env.cluster.sh` under `.deploy/` (gitignored).
+
+When switching OpenTLC sandboxes, update or clear `MODEL_REGISTRY_URL` /
+`MLFLOW_TRACKING_URI` in `.env` so they match the new `*.apps.*` hosts.
+`discover-demo-env.sh` prefers live routes when env URLs disagree with the
+current cluster.
 
 ### Auto-discovered workbench env
 

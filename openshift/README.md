@@ -1,8 +1,24 @@
-# KServe manifests
+# OpenShift manifests
 
-Serverless (Knative) InferenceService examples for the X-ray detector lifecycle demo.
+Serverless (Knative) InferenceService examples and platform bootstrap for the
+X-ray detector lifecycle demo.
 
-## Prerequisites
+## Platform (fresh cluster)
+
+```bash
+./openshift/ensure-platform.sh --wait
+# Applies: knative-serving.yaml, DSC mlflowoperator=Managed, model-registry-xray.yaml,
+#          mlflow.yaml (after CRD appears)
+```
+
+| File | Purpose |
+|------|---------|
+| `knative-serving.yaml` | KnativeServing instance (Serverless operator alone is not enough) |
+| `mlflow.yaml` | Lab MLflow CR (`serveArtifacts: true` + sqlite/PVC — required on RHOAI 3.5+) |
+| `model-registry-xray.yaml` | Demo MR instance `xray-model-registry` (needs DB secret from ensure-platform) |
+| `ensure-platform.sh` | Idempotent apply + optional `--wait` |
+
+## Serving prerequisites
 
 - OpenShift AI **single-model serving** enabled
 - Deployment mode **Advanced / Serverless** (required for `canaryTrafficPercent`)

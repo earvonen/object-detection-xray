@@ -54,16 +54,40 @@ if [[ "$DRY_RUN" -eq 0 ]] && ! oc whoami >/dev/null 2>&1; then
 fi
 
 # --- Discover ---
+# Prefer live cluster objects. Stale MODEL_REGISTRY_URL / MLFLOW_TRACKING_URI from a
+# previous OpenTLC .env must not win over the current oc session's routes.
+LIVE_MLFLOW_URL="$(oc get mlflow -A -o jsonpath='{.items[0].status.url}' 2>/dev/null || true)"
+LIVE_MLFLOW_URL="${LIVE_MLFLOW_URL%/}"
+
 MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}"
-if [[ -z "${MLFLOW_TRACKING_URI}" ]]; then
-  MLFLOW_TRACKING_URI="$(oc get mlflow -A -o jsonpath='{.items[0].status.url}' 2>/dev/null || true)"
+if [[ -n "${LIVE_MLFLOW_URL}" ]]; then
+  if [[ -z "${MLFLOW_TRACKING_URI}" || "${MLFLOW_TRACKING_URI}" == *apps.example.com* \
+    || "${MLFLOW_TRACKING_URI}" != "${LIVE_MLFLOW_URL}" ]]; then
+    if [[ -n "${MLFLOW_TRACKING_URI}" && "${MLFLOW_TRACKING_URI}" != "${LIVE_MLFLOW_URL}" ]]; then
+      warn "MLFLOW_TRACKING_URI from env (${MLFLOW_TRACKING_URI}) != live (${LIVE_MLFLOW_URL}) — using cluster"
+    fi
+    MLFLOW_TRACKING_URI="${LIVE_MLFLOW_URL}"
+  fi
 fi
 MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI%/}"
 
+LIVE_MR_HOST=""
+if oc get route "${MR_ROUTE}" -n "${MR_NAMESPACE}" >/dev/null 2>&1; then
+  LIVE_MR_HOST="$(oc get route "${MR_ROUTE}" -n "${MR_NAMESPACE}" -o jsonpath='{.spec.host}')"
+fi
+LIVE_MR_URL=""
+if [[ -n "${LIVE_MR_HOST}" ]]; then
+  LIVE_MR_URL="https://${LIVE_MR_HOST}"
+fi
+
 MODEL_REGISTRY_URL="${MODEL_REGISTRY_URL:-}"
-if [[ -z "${MODEL_REGISTRY_URL}" || "${MODEL_REGISTRY_URL}" == *apps.example.com* ]]; then
-  if oc get route "${MR_ROUTE}" -n "${MR_NAMESPACE}" >/dev/null 2>&1; then
-    MODEL_REGISTRY_URL="https://$(oc get route "${MR_ROUTE}" -n "${MR_NAMESPACE}" -o jsonpath='{.spec.host}')"
+if [[ -n "${LIVE_MR_URL}" ]]; then
+  if [[ -z "${MODEL_REGISTRY_URL}" || "${MODEL_REGISTRY_URL}" == *apps.example.com* \
+    || "${MODEL_REGISTRY_URL}" != "${LIVE_MR_URL}" ]]; then
+    if [[ -n "${MODEL_REGISTRY_URL}" && "${MODEL_REGISTRY_URL}" != "${LIVE_MR_URL}" ]]; then
+      warn "MODEL_REGISTRY_URL from env (${MODEL_REGISTRY_URL}) != live (${LIVE_MR_URL}) — using cluster route"
+    fi
+    MODEL_REGISTRY_URL="${LIVE_MR_URL}"
   fi
 fi
 MODEL_REGISTRY_URL="${MODEL_REGISTRY_URL%/}"

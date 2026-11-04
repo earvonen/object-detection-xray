@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Bootstrap the object-detection-xray demo onto an OpenShift cluster.
 #
-# Assumes platform components already exist (MLflow, Model Registry, Data Science
-# Pipelines, KServe single-model / Serverless). This script only creates the
-# demo project namespace and serving / RBAC plumbing.
+# Creates the demo project namespace and serving / RBAC plumbing. On a fresh
+# OpenTLC / RHOAI lab, also pass --ensure-platform (cluster-admin) so KnativeServing,
+# MLflow operator + CR, and ModelRegistry xray-model-registry exist first.
 #
 # Prerequisites:
 #   - oc logged in with permission to create the target namespace
@@ -20,9 +20,10 @@
 #   export AWS_DEFAULT_REGION=us-east-1 AWS_S3_BUCKET=models
 #   # After a model is in S3 (or use a warm-start URI):
 #   export STORAGE_URI=s3://models/object-detection/xray-detector/<run_id>
-#   ./deploy.sh
+#   ./deploy.sh --ensure-platform --build-workbench --skip-isvc
 #
 # Flags:
+#   --ensure-platform Run openshift/ensure-platform.sh --wait (Knative, MLflow, MR)
 #   --skip-isvc       Do not create/update the InferenceService
 #   --skip-pipeline   Do not compile the KFP pipeline YAML
 #   --skip-notebook   Do not apply workbench Notebook/PVC manifests
@@ -51,10 +52,12 @@ SKIP_ISVC=0
 SKIP_PIPELINE=0
 SKIP_NOTEBOOK=0
 BUILD_WORKBENCH=0
+ENSURE_PLATFORM=0
 DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --ensure-platform) ENSURE_PLATFORM=1 ;;
     --skip-isvc) SKIP_ISVC=1 ;;
     --skip-pipeline) SKIP_PIPELINE=1 ;;
     --skip-notebook) SKIP_NOTEBOOK=1 ;;
@@ -103,6 +106,16 @@ else
   log "cluster: $(oc whoami --show-server 2>/dev/null || echo unknown) as $(oc whoami)"
 fi
 log "namespace: ${NAMESPACE}"
+
+# --- Optional platform (Knative / MLflow / Model Registry instance) ---
+if [[ "$ENSURE_PLATFORM" -eq 1 ]]; then
+  log "ensuring platform components (openshift/ensure-platform.sh --wait)"
+  PLATFORM_ARGS=(--wait)
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    PLATFORM_ARGS+=(--dry-run)
+  fi
+  "${SCRIPT_DIR}/openshift/ensure-platform.sh" "${PLATFORM_ARGS[@]}"
+fi
 
 # --- Namespace (OpenShift AI data science project label) ---
 cat >"${OUT_DIR}/namespace.yaml" <<EOF
@@ -393,7 +406,8 @@ else
   echo "  3. Demo path: notebooks/00 (seed) then 01 → 05 (canary + promote are notebook cells)"
 fi
 echo "  Optional CLI/DSP: ${PIPELINE_OUT} / ./pipelines/run-promote-deploy-canary.sh"
-echo "  Shell helper: source ${ENV_OUT}"echo
+echo "  Shell helper: source ${ENV_OUT}"
+echo
 if [[ "$DRY_RUN" -eq 0 ]]; then
   oc get ns "${NAMESPACE}" -o name
   oc get sa,role,rolebinding,secret,configmap,inferenceservice -n "${NAMESPACE}" 2>/dev/null || true

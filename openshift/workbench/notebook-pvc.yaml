@@ -1,0 +1,20 @@
+# Workbench home PVC for the demo Notebook.
+# Placeholders: __NAMESPACE__, __PVC_SIZE__ (default 20Gi via apply script)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: object-detection-workbench-storage
+  namespace: __NAMESPACE__
+  labels:
+    app: object-detection-workbench
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: xray-lifecycle-demo
+  annotations:
+    openshift.io/display-name: object-detection-workbench-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: __PVC_SIZE__
+  volumeMode: Filesystem

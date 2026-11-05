@@ -1,0 +1,19 @@
+---
+description: Never invent or stand up S3/object storage — ask the user how to proceed
+alwaysApply: true
+---
+
+# S3 / object storage
+
+Do **not** attempt to set up S3-compatible object storage on your own when deploying or configuring this demo.
+
+That includes, for example:
+
+- Deploying MinIO, NooBaa, Garage, or other in-cluster object stores
+- Building custom MinIO images or hunting for pullable S3 server images
+- Creating buckets, inventing endpoints, or guessing cloud credentials
+- Spending time on workarounds when registry pulls or public binaries fail
+
+**Instead:** ask the user how they want S3 handled (existing Connection, external provider such as Filebase/AWS/MinIO they operate, or skip serving until storage is ready). Wait for their `AWS_*` values or Connection name, then wire only the Secret / Connection / InferenceService as they direct.
+
+`./deploy.sh` may create a data-connection Secret **only when** the user has already provided the `AWS_*` environment variables.

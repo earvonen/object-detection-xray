@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+# Discover demo URLs / names from the current oc session and materialize them for:
+#   1) .deploy/env.cluster.sh          — source in a local shell
+#   2) ConfigMap xray-demo-env         — injected into the workbench Notebook via envFrom
+#
+# Does NOT invent S3 credentials (Connection / AWS_* from the user).
+# Does NOT set MLFLOW_TRACKING_URI on the Notebook — that comes from
+# opendatahub.io/mlflow-instance=mlflow (URI + kubernetes auth). The shell file
+# still records the discovered MLflow URL for reference.
+#
+# Usage:
+#   ./openshift/discover-demo-env.sh              # write + apply ConfigMap
+#   ./openshift/discover-demo-env.sh --dry-run    # print only
+#   ./openshift/discover-demo-env.sh --no-apply   # write files, skip oc apply
+#   ./openshift/discover-demo-env.sh --restart    # also restart workbench pod
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+OUT_DIR="${REPO_ROOT}/.deploy"
+NAMESPACE="${KSERVE_NAMESPACE:-${NAMESPACE:-object-detection-xray}}"
+ISVC_NAME="${INFERENCE_SERVICE_NAME:-xray-detector}"
+CONNECTION_NAME="${STORAGE_KEY:-aws-connection-xray-models}"
+S3_KEY_PREFIX="${S3_KEY_PREFIX:-object-detection/xray-detector}"
+MR_NAMESPACE="${MODEL_REGISTRY_NAMESPACE:-rhoai-model-registries}"
+MR_ROUTE="${MODEL_REGISTRY_ROUTE:-xray-model-registry-https}"
+WORKBENCH="${WORKBENCH_NAME:-object-detection-workbench}"
+
+DRY_RUN=0
+NO_APPLY=0
+RESTART=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --no-apply) NO_APPLY=1 ;;
+    --restart) RESTART=1 ;;
+    -h|--help)
+      sed -n '2,16p' "$0"
+      exit 0
+      ;;
+  esac
+done
+
+log() { printf '==> %s\n' "$*"; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
+
+if ! command -v oc >/dev/null 2>&1; then
+  echo "error: oc not found" >&2
+  exit 1
+fi
+if [[ "$DRY_RUN" -eq 0 ]] && ! oc whoami >/dev/null 2>&1; then
+  echo "error: not logged in (oc whoami failed)" >&2
+  exit 1
+fi
+
+# --- Discover ---
+# Prefer live cluster objects. Stale MODEL_REGISTRY_URL / MLFLOW_TRACKING_URI from a
+# previous OpenTLC .env must not win over the current oc session's routes.
+LIVE_MLFLOW_URL="$(oc get mlflow -A -o jsonpath='{.items[0].status.url}' 2>/dev/null || true)"
+LIVE_MLFLOW_URL="${LIVE_MLFLOW_URL%/}"
+
+MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}"
+if [[ -n "${LIVE_MLFLOW_URL}" ]]; then
+  if [[ -z "${MLFLOW_TRACKING_URI}" || "${MLFLOW_TRACKING_URI}" == *apps.example.com* \
+    || "${MLFLOW_TRACKING_URI}" != "${LIVE_MLFLOW_URL}" ]]; then
+    if [[ -n "${MLFLOW_TRACKING_URI}" && "${MLFLOW_TRACKING_URI}" != "${LIVE_MLFLOW_URL}" ]]; then
+      warn "MLFLOW_TRACKING_URI from env (${MLFLOW_TRACKING_URI}) != live (${LIVE_MLFLOW_URL}) — using cluster"
+    fi
+    MLFLOW_TRACKING_URI="${LIVE_MLFLOW_URL}"
+  fi
+fi
+MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI%/}"
+
+LIVE_MR_HOST=""
+if oc get route "${MR_ROUTE}" -n "${MR_NAMESPACE}" >/dev/null 2>&1; then
+  LIVE_MR_HOST="$(oc get route "${MR_ROUTE}" -n "${MR_NAMESPACE}" -o jsonpath='{.spec.host}')"
+fi
+LIVE_MR_URL=""
+if [[ -n "${LIVE_MR_HOST}" ]]; then
+  LIVE_MR_URL="https://${LIVE_MR_HOST}"
+fi
+
+MODEL_REGISTRY_URL="${MODEL_REGISTRY_URL:-}"
+if [[ -n "${LIVE_MR_URL}" ]]; then
+  if [[ -z "${MODEL_REGISTRY_URL}" || "${MODEL_REGISTRY_URL}" == *apps.example.com* \
+    || "${MODEL_REGISTRY_URL}" != "${LIVE_MR_URL}" ]]; then
+    if [[ -n "${MODEL_REGISTRY_URL}" && "${MODEL_REGISTRY_URL}" != "${LIVE_MR_URL}" ]]; then
+      warn "MODEL_REGISTRY_URL from env (${MODEL_REGISTRY_URL}) != live (${LIVE_MR_URL}) — using cluster route"
+    fi
+    MODEL_REGISTRY_URL="${LIVE_MR_URL}"
+  fi
+fi
+MODEL_REGISTRY_URL="${MODEL_REGISTRY_URL%/}"
+
+# Lab clusters usually need this; override with MODEL_REGISTRY_VERIFY_SSL=true if trusted.
+MODEL_REGISTRY_VERIFY_SSL="${MODEL_REGISTRY_VERIFY_SSL:-false}"
+
+INFERENCE_ENDPOINT="${INFERENCE_ENDPOINT:-}"
+INFERENCE_ENDPOINT_LATEST="${INFERENCE_ENDPOINT_LATEST:-}"
+INFERENCE_ENDPOINT_PREV="${INFERENCE_ENDPOINT_PREV:-}"
+if oc get inferenceservice "${ISVC_NAME}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+  if [[ -z "${INFERENCE_ENDPOINT}" ]]; then
+    INFERENCE_ENDPOINT="$(oc get inferenceservice "${ISVC_NAME}" -n "${NAMESPACE}" \
+      -o jsonpath='{.status.components.predictor.url}' 2>/dev/null || true)"
+  fi
+  # Tag routes from canary traffic status (enable-tag-routing).
+  # Use full -o json — jsonpath on .traffic often emits invalid JSON (no commas).
+  ISVC_JSON="$(oc get inferenceservice "${ISVC_NAME}" -n "${NAMESPACE}" -o json 2>/dev/null || true)"
+  if [[ -n "${ISVC_JSON}" ]]; then
+    eval "$(ISVC_JSON="${ISVC_JSON}" python3 - <<'PY'
+import json, os, shlex
+try:
+    doc = json.loads(os.environ.get("ISVC_JSON") or "{}")
+except json.JSONDecodeError:
+    doc = {}
+predictor = ((doc.get("status") or {}).get("components") or {}).get("predictor") or {}
+traffic = predictor.get("traffic") or []
+latest = prev = ""
+for t in traffic:
+    tag = (t.get("tag") or "").lower()
+    url = (t.get("url") or "").rstrip("/")
+    if not url:
+        continue
+    if tag == "latest":
+        latest = url
+    elif tag == "prev":
+        prev = url
+if latest:
+    print(f"INFERENCE_ENDPOINT_LATEST={shlex.quote(latest)}")
+if prev:
+    print(f"INFERENCE_ENDPOINT_PREV={shlex.quote(prev)}")
+PY
+)"
+  fi
+fi
+INFERENCE_ENDPOINT="${INFERENCE_ENDPOINT%/}"
+
+mkdir -p "${OUT_DIR}"
+
+# --- Shell helper ---
+ENV_SH="${OUT_DIR}/env.cluster.sh"
+cat >"${ENV_SH}" <<EOF
+# Generated by openshift/discover-demo-env.sh — source in a local shell or workbench terminal.
+# Workbench Notebook pods also get these via ConfigMap/xray-demo-env (except MLflow URI/auth).
+export KSERVE_NAMESPACE="${NAMESPACE}"
+export INFERENCE_SERVICE_NAME="${ISVC_NAME}"
+export REGISTERED_MODEL_NAME="${REGISTERED_MODEL_NAME:-xray-detector}"
+export S3_KEY_PREFIX="${S3_KEY_PREFIX}"
+export STORAGE_KEY="${CONNECTION_NAME}"
+export MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-xray-detector}"
+EOF
+
+if [[ -n "${MLFLOW_TRACKING_URI}" ]]; then
+  cat >>"${ENV_SH}" <<EOF
+# Discovered MLflow URL (workbench uses opendatahub.io/mlflow-instance annotation for URI+auth):
+# export MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI}"
+EOF
+fi
+if [[ -n "${MODEL_REGISTRY_URL}" ]]; then
+  cat >>"${ENV_SH}" <<EOF
+export MODEL_REGISTRY_URL="${MODEL_REGISTRY_URL}"
+export MODEL_REGISTRY_VERIFY_SSL="${MODEL_REGISTRY_VERIFY_SSL}"
+EOF
+fi
+if [[ -n "${INFERENCE_ENDPOINT}" ]]; then
+  cat >>"${ENV_SH}" <<EOF
+export INFERENCE_ENDPOINT="${INFERENCE_ENDPOINT}"
+EOF
+fi
+if [[ -n "${INFERENCE_ENDPOINT_LATEST}" ]]; then
+  cat >>"${ENV_SH}" <<EOF
+export INFERENCE_ENDPOINT_LATEST="${INFERENCE_ENDPOINT_LATEST}"
+EOF
+fi
+if [[ -n "${INFERENCE_ENDPOINT_PREV}" ]]; then
+  cat >>"${ENV_SH}" <<EOF
+export INFERENCE_ENDPOINT_PREV="${INFERENCE_ENDPOINT_PREV}"
+EOF
+fi
+
+# --- ConfigMap (Notebook envFrom) — omit empty optional URLs ---
+CM_YAML="${OUT_DIR}/xray-demo-env.configmap.yaml"
+{
+  cat <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xray-demo-env
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: object-detection-xray
+data:
+  KSERVE_NAMESPACE: "${NAMESPACE}"
+  INFERENCE_SERVICE_NAME: "${ISVC_NAME}"
+  REGISTERED_MODEL_NAME: "${REGISTERED_MODEL_NAME:-xray-detector}"
+  S3_KEY_PREFIX: "${S3_KEY_PREFIX}"
+  STORAGE_KEY: "${CONNECTION_NAME}"
+  MLFLOW_EXPERIMENT_NAME: "${MLFLOW_EXPERIMENT_NAME:-xray-detector}"
+  MODEL_REGISTRY_VERIFY_SSL: "${MODEL_REGISTRY_VERIFY_SSL}"
+EOF
+  if [[ -n "${MODEL_REGISTRY_URL}" ]]; then
+    echo "  MODEL_REGISTRY_URL: \"${MODEL_REGISTRY_URL}\""
+  fi
+  if [[ -n "${INFERENCE_ENDPOINT}" ]]; then
+    echo "  INFERENCE_ENDPOINT: \"${INFERENCE_ENDPOINT}\""
+  fi
+  if [[ -n "${INFERENCE_ENDPOINT_LATEST}" ]]; then
+    echo "  INFERENCE_ENDPOINT_LATEST: \"${INFERENCE_ENDPOINT_LATEST}\""
+  fi
+  if [[ -n "${INFERENCE_ENDPOINT_PREV}" ]]; then
+    echo "  INFERENCE_ENDPOINT_PREV: \"${INFERENCE_ENDPOINT_PREV}\""
+  fi
+} >"${CM_YAML}"
+
+log "discovered:"
+echo "  MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-"(unset — annotation will inject)"}"
+echo "  MODEL_REGISTRY_URL=${MODEL_REGISTRY_URL:-"(unset)"}"
+echo "  INFERENCE_ENDPOINT=${INFERENCE_ENDPOINT:-"(unset — re-run after ISVC Ready)"}"
+echo "  INFERENCE_ENDPOINT_LATEST=${INFERENCE_ENDPOINT_LATEST:-"(unset)"}"
+echo "  INFERENCE_ENDPOINT_PREV=${INFERENCE_ENDPOINT_PREV:-"(unset)"}"
+echo "  wrote ${ENV_SH}"
+echo "  wrote ${CM_YAML}"
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  log "dry-run: skip apply"
+  exit 0
+fi
+
+if [[ "$NO_APPLY" -eq 1 ]]; then
+  log "skipping ConfigMap apply (--no-apply)"
+  exit 0
+fi
+
+if ! oc get ns "${NAMESPACE}" >/dev/null 2>&1; then
+  warn "namespace ${NAMESPACE} missing — ConfigMap not applied yet (deploy.sh will create it)"
+  exit 0
+fi
+
+oc apply -f "${CM_YAML}"
+
+if [[ "$RESTART" -eq 1 ]]; then
+  if oc get notebook "${WORKBENCH}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+    log "restarting workbench pod so new env is picked up"
+    oc delete pod -n "${NAMESPACE}" -l app="${WORKBENCH}" --wait=false 2>/dev/null \
+      || oc delete pod "${WORKBENCH}-0" -n "${NAMESPACE}" --wait=false 2>/dev/null \
+      || true
+  else
+    warn "Notebook/${WORKBENCH} not found — skip restart"
+  fi
+fi

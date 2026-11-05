@@ -1,45 +1,51 @@
 #!/usr/bin/env bash
-# Upload trained YOLO ONNX export to S3 (AWS CLI; install via install-dependencies.sh).
-# All connection settings come from environment variables.
+# Upload a YOLO ONNX export to S3-compatible object storage (AWS CLI).
+# Connection settings use OpenShift AI data-connection style AWS_* variables.
 #
 # Required:
-#   S3_ACCESS_KEY   — access key id
-#   S3_SECRET_KEY   — secret access key
-#   S3_ENDPOINT     — API endpoint (e.g. https://play.min.io for MinIO, or
-#                     https://s3.<region>.amazonaws.com for AWS)
-#   S3_REGION       — region name (e.g. us-east-1)
-#   S3_BUCKET       — bucket name
+#   AWS_ACCESS_KEY_ID
+#   AWS_SECRET_ACCESS_KEY
+#   AWS_S3_ENDPOINT       — e.g. https://play.min.io or https://s3.<region>.amazonaws.com
+#   AWS_DEFAULT_REGION
+#   AWS_S3_BUCKET
 #
 # Optional:
-#   S3_KEY          — object key (default: models/best.onnx)
-#   LOCAL_ONNX      — local file path (default: runs-openshift/exp1/weights/best.onnx)
+#   LOCAL_ONNX           — default: runs-openshift/exp1/weights/best.onnx
+#   S3_KEY               — default: object-detection/xray-detector/model.onnx
+#   MLFLOW_RUN_ID        — if set and S3_KEY unset, key becomes
+#                          object-detection/xray-detector/<run_id>/model.onnx
 #
 # Usage:
-#   export S3_ACCESS_KEY=...
-#   export S3_SECRET_KEY=...
-#   export S3_ENDPOINT=https://s3.us-east-1.amazonaws.com
-#   export S3_REGION=us-east-1
-#   export S3_BUCKET=my-bucket
+#   export AWS_ACCESS_KEY_ID=...
+#   export AWS_SECRET_ACCESS_KEY=...
+#   export AWS_S3_ENDPOINT=https://s3.us-east-1.amazonaws.com
+#   export AWS_DEFAULT_REGION=us-east-1
+#   export AWS_S3_BUCKET=my-bucket
 #   ./upload-best-onnx-to-s3.sh
 
 set -euo pipefail
 
-S3_ACCESS_KEY="${AWS_ACCESS_KEY_ID:?Set S3_ACCESS_KEY}"
-S3_SECRET_KEY="${AWS_SECRET_ACCESS_KEY:?Set S3_SECRET_KEY}"
-S3_ENDPOINT="${AWS_S3_ENDPOINT:?Set S3_ENDPOINT (e.g. https://s3.us-east-1.amazonaws.com or your MinIO URL)}"
-S3_REGION="${AWS_DEFAULT_REGION:?Set S3_REGION}"
-S3_BUCKET="${AWS_S3_BUCKET:?Set S3_BUCKET}"
+: "${AWS_ACCESS_KEY_ID:?Set AWS_ACCESS_KEY_ID}"
+: "${AWS_SECRET_ACCESS_KEY:?Set AWS_SECRET_ACCESS_KEY}"
+: "${AWS_S3_ENDPOINT:?Set AWS_S3_ENDPOINT}"
+: "${AWS_DEFAULT_REGION:?Set AWS_DEFAULT_REGION}"
+: "${AWS_S3_BUCKET:?Set AWS_S3_BUCKET}"
 
-LOCAL_ONNX="${LOCAL_ONNX:-runs/detect/runs-openshift/exp1/weights/best.onnx}"
-S3_KEY="${S3_KEY:-object-detection/best.onnx}"
-S3_URI="s3://${S3_BUCKET}/${S3_KEY}"
+LOCAL_ONNX="${LOCAL_ONNX:-runs-openshift/exp1/weights/best.onnx}"
+PREFIX="${S3_KEY_PREFIX:-object-detection/xray-detector}"
 
-export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY"
-export AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY"
-export AWS_DEFAULT_REGION="$S3_REGION"
+if [[ -n "${S3_KEY:-}" ]]; then
+  :
+elif [[ -n "${MLFLOW_RUN_ID:-}" ]]; then
+  S3_KEY="${PREFIX}/${MLFLOW_RUN_ID}/model.onnx"
+else
+  S3_KEY="${PREFIX}/model.onnx"
+fi
+
+S3_URI="s3://${AWS_S3_BUCKET}/${S3_KEY}"
 
 if ! command -v aws >/dev/null 2>&1; then
-  echo "error: aws CLI not found. Install: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html" >&2
+  echo "error: aws CLI not found. Install via ./install-dependencies.sh" >&2
   exit 1
 fi
 
@@ -48,9 +54,11 @@ if [[ ! -f "$LOCAL_ONNX" ]]; then
   exit 1
 fi
 
-echo "Uploading: $LOCAL_ONNX -> $S3_URI (endpoint: $S3_ENDPOINT)"
+echo "Uploading: $LOCAL_ONNX -> $S3_URI (endpoint: $AWS_S3_ENDPOINT)"
 aws s3 cp "$LOCAL_ONNX" "$S3_URI" \
-  --endpoint-url "$S3_ENDPOINT" \
-  --region "$S3_REGION" \
+  --endpoint-url "$AWS_S3_ENDPOINT" \
+  --region "$AWS_DEFAULT_REGION" \
   --content-type application/octet-stream
 echo "Done."
+echo "S3_URI=$S3_URI"
+echo "S3_KEY=$S3_KEY"

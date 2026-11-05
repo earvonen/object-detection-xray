@@ -1,0 +1,40 @@
+# Allow the demo workbench SA to create/patch InferenceServices and the OVMS
+# ServingRuntime (notebook 00 / ensure-baseline-isvc.sh, canary promote).
+# Also allow refreshing ConfigMap xray-demo-env and restarting the workbench pod.
+# deploy.sh embeds the same Role + workbench subject.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: xray-isvc-patcher
+  namespace: object-detection-xray
+  labels:
+    app.kubernetes.io/part-of: object-detection-xray
+rules:
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices", "servingruntimes"]
+    verbs: ["get", "list", "watch", "patch", "update", "create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: xray-isvc-patcher
+  namespace: object-detection-xray
+  labels:
+    app.kubernetes.io/part-of: object-detection-xray
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: xray-isvc-patcher
+subjects:
+  - kind: ServiceAccount
+    name: xray-pipeline
+    namespace: object-detection-xray
+  - kind: ServiceAccount
+    name: object-detection-workbench
+    namespace: object-detection-xray

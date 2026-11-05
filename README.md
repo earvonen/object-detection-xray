@@ -1,50 +1,150 @@
-# X-ray object detection (OpenShift AI demo)
+# X-ray object detection — MLflow → Model Registry → KServe
 
-This repository is a compact demo for **Red Hat OpenShift AI**: train a small object detector on thousands of X-ray style scans of baggage or containers, where some images contain **prohibited items** and are annotated with bounding boxes.
+OpenShift AI demo of an end-to-end **model lifecycle** for X-ray baggage / prohibited-item detection:
 
-The workflow is notebook-driven: train with [Ultralytics](https://docs.ultralytics.com/) YOLO, run quick inference, then optionally export the best weights for **ONNX** and **OpenVINO** for edge or CPU-oriented deployment stories.
+**Experiment → Track → Evaluate → Select → Register → Promote → Canary → Validate → Promote or roll back**
 
-## What is in the dataset?
+| Layer | Role in this demo |
+|-------|-------------------|
+| **MLflow** | Data-scientist experiments only (params, metrics, dataset lineage, artifacts) |
+| **OpenShift AI Model Registry** | Production boundary — curated versions; `stage=prod` is the production designation |
+| **KServe (Serverless)** | Serve ONNX; canary traffic split (`latest-` / `prev-` tag routes) |
+| **Notebooks 00–05** | Presenter path — train through canary, infer, and promote/rollback **from cells** |
+| **Data Science Pipelines** *(optional)* | Same canary/promote logic compiled for automation (webhook / DSP), not required live |
 
-- **Source**: [Roboflow Universe — X-ray baggage detection (prohibited items)](https://universe.roboflow.com/malek-mhnrl/x-ray-baggage-detection/dataset/1), exported in **YOLO** format (CC BY 4.0). See `images/README.roboflow.txt` and `images/README.dataset.txt` for export metadata.
-- **Layout** (under `images/`): `train/`, `valid/`, and `test/` each contain `images/` and `labels/` (YOLO `.txt` per image: `class cx cy w h` in normalized coordinates).
-- **Task**: **5-class object detection** (`nc: 5` in `images/data.yaml`). Class names in the YAML are numeric placeholders (`0`–`4`); the Roboflow project page describes the semantic item categories.
+MLflow Model Registry aliases (e.g. `@prod`) are **not** used. Production moves by changing `stage=prod` on an OpenShift AI Model Registry version.
+
+```text
+Jupyter workbench
+  → MLflow experiments (many runs)
+  → compare / select (few candidates)
+  → ONNX → S3
+  → OpenShift AI Model Registry (stage=candidate → stage=prod)
+  → KServe InferenceService (canary → promote / rollback)
+       ↑ driven by notebook cells (src.canary_deploy)
+```
+
+## Dataset
+
+- **Source**: [Roboflow — X-ray baggage detection](https://universe.roboflow.com/malek-mhnrl/x-ray-baggage-detection/dataset/1) (YOLO format, CC BY 4.0)
+- Layout under `images/` with `data.yaml` (`nc: 5`)
+
+## Prerequisites (cluster)
+
+- OpenShift AI with KServe / workbenches (DSP optional). Fresh labs: `./openshift/ensure-platform.sh` for **MLflow**, **Model Registry** instance, and **KnativeServing**
+- KServe in **Advanced / Serverless** mode (canary needs KnativeServing)
+- S3-compatible object storage + project Connection (you supply credentials — see below)
+- GPU node recommended for live training; CPU + short knobs or warm-start also works
+
+Environment variables: [`docs/env.md`](docs/env.md).
+
+## Setup
+
+### Cluster bootstrap (with `oc` login)
+
+On a fresh lab, enable platform pieces first (or pass `--ensure-platform`): KnativeServing, MLflow operator + CR (`openshift/mlflow.yaml`), and Model Registry instance `xray-model-registry` (`openshift/model-registry-xray.yaml`). See `./openshift/ensure-platform.sh`.
+
+`deploy.sh` creates project **`object-detection-xray`**, Connection Secret (if `AWS_*` set), Model Registry + ISVC patch RBAC, workbench image/Notebook, and discovers cluster URLs into ConfigMap **`xray-demo-env`**.
+
+```bash
+oc login ...
+# Prefer a gitignored .env with AWS_* (see docs/env.md). Rewrite apps.* hosts when switching OpenTLC sandboxes.
+set -a && source .env && set +a
+
+# Skip ISVC until notebook 00 seeds …/baseline (canary needs a different path later)
+./deploy.sh --ensure-platform --build-workbench --skip-isvc
+
+# Optional: re-discover URLs after the ISVC exists
+./openshift/discover-demo-env.sh --restart
+```
+
+Workbench env (no hand-exports needed in notebooks):
+
+| Source | Variables |
+|--------|-----------|
+| Notebook annotation `opendatahub.io/mlflow-instance=mlflow` | `MLFLOW_TRACKING_URI` + Kubernetes auth |
+| ConfigMap `xray-demo-env` (from `discover-demo-env.sh`) | `MODEL_REGISTRY_URL`, `INFERENCE_ENDPOINT`, tag URLs, names/prefixes |
+| Connection Secret (via `envFrom`) | `AWS_*` |
+
+**S3 / object storage:** do **not** stand up MinIO or any other object store for this demo. Use an existing bucket/Connection and supply `AWS_*`, or defer serving. See [`.cursor/rules/s3-ask-user.mdc`](.cursor/rules/s3-ask-user.mdc).
+
+### Workbench image
+
+**Recommended:** `./deploy.sh --build-workbench` layers [`install-dependencies.sh`](install-dependencies.sh) on **Jupyter | Minimal | CUDA | Python 3.12** and applies Notebook `object-detection-workbench`.
+
+**Alternative:** stock Minimal CUDA image + `bash install-dependencies.sh` in the terminal.
+
+Clone or sync this repo into the workbench so `images/data.yaml` and `notebooks/` resolve.
+
+### Reset / teardown
+
+| Goal | Command |
+|------|---------|
+| Wipe MLflow runs + clear `stage=prod` (keep LIVE model) | `./openshift/reset-mlflow-registry.sh` |
+| Wipe MLflow/MR data, then delete demo namespace + MR RoleBinding | `./openshift/teardown-demo.sh` |
+| Full reset (same as teardown; also used by agents with `--yes`) | `./openshift/reset-demo.sh` |
+
+## Demo flow (presenter — notebooks only)
+
+Aim for ~20–30 minutes with short training (`DEMO_EPOCHS=3`). Each code cell has a plain-language markdown blurb above it.
+
+0. **Seed baseline (before the audience)** — [`notebooks/00_seed_baseline.ipynb`](notebooks/00_seed_baseline.ipynb)  
+   Deliberately weak train → `…/baseline/1/model.onnx` → InferenceService on that path so a **prev** revision exists before the live story.
+
+1. **Train & track** — [`notebooks/01_train_track.ipynb`](notebooks/01_train_track.ipynb)  
+   Short YOLO matrix → MLflow experiment `xray-detector`. Emphasize experiment history, not registration.
+
+2. **Evaluate & select** — [`notebooks/02_evaluate_select.ipynb`](notebooks/02_evaluate_select.ipynb)  
+   Compare runs; pick one into `.demo_state.json`. Other runs stay experiments only.
+
+3. **Export & register** — [`notebooks/03_export_register.ipynb`](notebooks/03_export_register.ipynb)  
+   ONNX → `object-detection/xray-detector/<run_id>/1/model.onnx` → Model Registry `stage=candidate`.  
+   **Do not** retarget the ISVC to this run (baseline from 00 stays `prev`).
+
+4. **Promote prod + canary** — [`notebooks/04_promote_prod.ipynb`](notebooks/04_promote_prod.ipynb)  
+   `stage=prod`, then a cell patches the ISVC with `canaryTrafficPercent: 10` (via `src.canary_deploy`). Expect two revisions/pods.
+
+5. **Infer + promote/rollback** — [`notebooks/05_infer_served.ipynb`](notebooks/05_infer_served.ipynb)  
+   Smoke the predictor URL, hit `latest-` / `prev-` tag routes, then promote to 100% or roll back — all in cells.
+
+If you skipped notebook 00, run `./openshift/ensure-baseline-isvc.sh` after notebook 03 before canary.
+
+Warm-start option: skip live training and export from checked-in `runs-openshift/exp1/weights/best.pt` — useful if GPU time is limited.
 
 ## Repository layout
 
 | Path | Purpose |
 |------|---------|
-| `train.ipynb` | Train `yolov8n.pt` on `images/data.yaml`, writing runs to `runs-openshift/exp1/` (`project=runs-openshift`, `name=exp1`). |
-| `test.ipynb` | Load `runs-openshift/exp1/weights/best.pt` and run detection on `knife.jpg` (example single-image inference). |
-| `export.ipynb` | Export `best.pt` to **ONNX**, then convert toward **OpenVINO IR** via `openvino.tools.mo.convert_model` (legacy MO API; see notebook output for OpenVINO migration notes). |
-| `install-dependencies.sh` | Example `pip install` line for training, export, and OpenVINO tooling. |
-| `images/data.yaml` | YOLO dataset config: paths are **relative to this file’s directory** (`images/`). |
-| `runs-openshift/exp1/` | Training outputs (e.g. `args.yaml`, `results.csv`, weights when you train). The repo may ship only partial artifacts; run `train.ipynb` to regenerate `weights/`. |
-| `yolov8n.pt` / `yolo11n.pt` | Optional local base checkpoints; Ultralytics can also download weights on first use. |
+| `notebooks/00_…05_…` | Seed + full lifecycle (presenter path) |
+| `src/` | MLflow helpers, Model Registry client, S3/OVMS paths, KServe patch + `canary_deploy` |
+| `openshift/` | ISVC manifests, workbench build, RBAC, `discover-demo-env.sh`, reset/teardown |
+| `pipelines/` | Optional CLI / KFP compile of the same canary flow |
+| `docs/env.md` | Environment variables |
+| `deploy.sh` | Bootstrap project, Connection, workbench, discovery |
+| `train.ipynb` / `test.ipynb` / `export.ipynb` | Legacy notebooks (paths aligned to `runs-openshift/`) |
 
-## Prerequisites
+## Why OpenShift AI Model Registry here?
 
-- Python **3.12** (matches notebook metadata used in this project).
-- **GPU** recommended for training (the checked-in logs reference CUDA on an A100-class GPU); CPU is possible but slow.
-- Dependencies (see `install-dependencies.sh`):
+MLflow remains the familiar DS experiment system. The OpenShift AI Model Registry is the **operational** handoff: only curated models, dashboard visibility, RBAC/project sharing, and a stable contract for serving. That keeps “every experiment artifact” out of production.
+
+## Serving notes
+
+- Format: **ONNX** on S3; OVMS expects `{prefix}/1/model.onnx` (baseline: `…/baseline/1/model.onnx`)
+- Canary needs Knative Serverless + a path change vs the live ISVC
+- Smoke tests: use the **predictor** URL (`status.components.predictor.url` / `INFERENCE_ENDPOINT`), not `status.url` (often 503)
+- Tag routing (`serving.kserve.io/enable-tag-routing=true`) exposes `latest-` / `prev-` hosts for explicit canary checks
+- YOLO ONNX may need client-side letterbox/NMS for pretty boxes; notebook 05 proves the serving path
+
+## Automation path
+
+The live demo uses notebook cells. The same logic (`src.canary_deploy` / `pipelines/promote_deploy_canary.py`) is the seam for production automation: webhook / EventListener / GitOps on `stage=prod` → canary → promote.
 
 ```bash
-pip install "numpy>=2.0.0,<3" "torch>=2.4" ultralytics "openvino>=2024.5" onnx onnxruntime
+# Optional — same behavior as notebook 04/05 cells
+./pipelines/run-promote-deploy-canary.sh --action leave-canary
+./pipelines/run-promote-deploy-canary.sh --action promote   # or rollback
 ```
-
-## Running the demo
-
-1. **Install** the packages above in your OpenShift AI workbench or local environment.
-2. Open **`train.ipynb`** and execute the training cell. This calls `YOLO("yolov8n.pt").train(...)` with `data="images/data.yaml"`, `epochs=50`, `imgsz=640`, and logs under `runs-openshift/exp1/`.
-3. Open **`test.ipynb`** to run inference on `knife.jpg` using `runs-openshift/exp1/weights/best.pt`.
-4. Optionally run **`export.ipynb`** after training to produce ONNX and OpenVINO-oriented artifacts under `runs-openshift/exp1/weights/`.
-
-## Notes for presenters
-
-- **Narrative**: screening / contraband detection is a relatable use case for regulated or security-adjacent ML; emphasize responsible use, dataset licensing, and that metrics on a public demo set do not imply production readiness.
-- **OpenShift AI**: mount or clone this repo into a workbench, use a GPU-enabled notebook image, and keep run artifacts on persistent storage (`runs-openshift/`).
-- **Class names**: replace the placeholder names in `images/data.yaml` with human-readable labels if you publish plots or a UI, as long as they stay aligned with the integer IDs in the label files.
 
 ## License
 
-Dataset terms are described in the Roboflow export files under `images/` (CC BY 4.0 for the linked Roboflow version). Add or adjust a top-level license for your own code and artifacts if you distribute them beyond this demo.
+Dataset terms: Roboflow export files under `images/` (CC BY 4.0 for the linked version). Add a top-level license for your own code if you redistribute beyond this demo.

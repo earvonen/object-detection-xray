@@ -1,0 +1,414 @@
+#!/usr/bin/env bash
+# Bootstrap the object-detection-xray demo onto an OpenShift cluster.
+#
+# Creates the demo project namespace and serving / RBAC plumbing. On a fresh
+# OpenTLC / RHOAI lab, also pass --ensure-platform (cluster-admin) so KnativeServing,
+# MLflow operator + CR, and ModelRegistry xray-model-registry exist first.
+#
+# Prerequisites:
+#   - oc logged in with permission to create the target namespace
+#   - Optional: AWS_* env vars to create an S3 data-connection Secret
+#   - Optional: STORAGE_URI or STORAGE_KEY+STORAGE_PATH to create the InferenceService
+#
+# S3 policy: do NOT deploy MinIO or another object store from this script or ad-hoc
+# cluster work. If AWS_* are unset, skip the Connection and ask the user how they
+# want object storage handled.
+#
+# Usage:
+#   oc login ...
+#   export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_S3_ENDPOINT=...
+#   export AWS_DEFAULT_REGION=us-east-1 AWS_S3_BUCKET=models
+#   # After a model is in S3 (or use a warm-start URI):
+#   export STORAGE_URI=s3://models/object-detection/xray-detector/<run_id>
+#   ./deploy.sh --ensure-platform --build-workbench --skip-isvc
+#
+# Flags:
+#   --ensure-platform Run openshift/ensure-platform.sh --wait (Knative, MLflow, MR)
+#   --skip-isvc       Do not create/update the InferenceService
+#   --skip-pipeline   Do not compile the KFP pipeline YAML
+#   --skip-notebook   Do not apply workbench Notebook/PVC manifests
+#   --build-workbench Apply workbench ImageStream/BuildConfig and start a build
+#                     (layers install-dependencies.sh on Minimal CUDA Python 3.12)
+#   --dry-run         Print actions without applying
+#
+# Optional: source .env (gitignored) for AWS_* / CONNECTION defaults.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+  # shellcheck disable=SC1091
+  set -a && source "${SCRIPT_DIR}/.env" && set +a
+fi
+
+NAMESPACE="${KSERVE_NAMESPACE:-object-detection-xray}"
+ISVC_NAME="${INFERENCE_SERVICE_NAME:-xray-detector}"
+PIPELINE_SA="${PIPELINE_SA:-xray-pipeline}"
+CONNECTION_NAME="${STORAGE_KEY:-aws-connection-xray-models}"
+S3_KEY_PREFIX="${S3_KEY_PREFIX:-object-detection/xray-detector}"
+WORKBENCH_IMAGE="${WORKBENCH_IMAGE:-image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/xray-workbench:latest}"
+OUT_DIR="${SCRIPT_DIR}/.deploy"
+SKIP_ISVC=0
+SKIP_PIPELINE=0
+SKIP_NOTEBOOK=0
+BUILD_WORKBENCH=0
+ENSURE_PLATFORM=0
+DRY_RUN=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ensure-platform) ENSURE_PLATFORM=1 ;;
+    --skip-isvc) SKIP_ISVC=1 ;;
+    --skip-pipeline) SKIP_PIPELINE=1 ;;
+    --skip-notebook) SKIP_NOTEBOOK=1 ;;
+    --build-workbench) BUILD_WORKBENCH=1 ;;
+    --dry-run) DRY_RUN=1 ;;
+    -h|--help)
+      awk 'NR==1{next} /^[^#]/{exit} {sub(/^# ?/,""); print}' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown flag: $1" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+log() { printf '==> %s\n' "$*"; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
+
+apply_yaml() {
+  local file="$1"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "dry-run: would apply ${file}"
+    cat "$file"
+    echo "---"
+  else
+    oc apply -f "$file"
+  fi
+}
+
+if ! command -v oc >/dev/null 2>&1; then
+  echo "error: oc not found in PATH" >&2
+  exit 1
+fi
+
+if [[ "$DRY_RUN" -eq 0 ]] && ! oc whoami >/dev/null 2>&1; then
+  echo "error: not logged in to a cluster (oc whoami failed)" >&2
+  exit 1
+fi
+
+mkdir -p "$OUT_DIR"
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  log "dry-run mode (no cluster changes)"
+else
+  log "cluster: $(oc whoami --show-server 2>/dev/null || echo unknown) as $(oc whoami)"
+fi
+log "namespace: ${NAMESPACE}"
+
+# --- Optional platform (Knative / MLflow / Model Registry instance) ---
+if [[ "$ENSURE_PLATFORM" -eq 1 ]]; then
+  log "ensuring platform components (openshift/ensure-platform.sh --wait)"
+  PLATFORM_ARGS=(--wait)
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    PLATFORM_ARGS+=(--dry-run)
+  fi
+  "${SCRIPT_DIR}/openshift/ensure-platform.sh" "${PLATFORM_ARGS[@]}"
+fi
+
+# --- Namespace (OpenShift AI data science project label) ---
+cat >"${OUT_DIR}/namespace.yaml" <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE}
+  labels:
+    opendatahub.io/dashboard: "true"
+    kubernetes.openshift.io/cluster-monitoring: "true"
+  annotations:
+    openshift.io/display-name: "Object Detection X-ray (lifecycle demo)"
+    openshift.io/description: "MLflow experiments → OpenShift AI Model Registry → KServe canary"
+EOF
+apply_yaml "${OUT_DIR}/namespace.yaml"
+
+# --- Pipeline ServiceAccount + RBAC ---
+cat >"${OUT_DIR}/sa-rbac.yaml" <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${PIPELINE_SA}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: xray-lifecycle-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: xray-isvc-patcher
+  namespace: ${NAMESPACE}
+rules:
+  # notebook 00 / ensure-baseline-isvc applies ServingRuntime + InferenceService;
+  # canary/promote patch InferenceService only.
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices", "servingruntimes"]
+    verbs: ["get", "list", "watch", "patch", "update", "create"]
+  # discover-demo-env.sh --restart (ConfigMap + workbench pod delete)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: xray-isvc-patcher
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: xray-isvc-patcher
+subjects:
+  - kind: ServiceAccount
+    name: ${PIPELINE_SA}
+    namespace: ${NAMESPACE}
+  # Workbench terminal runs promote script with this SA.
+  - kind: ServiceAccount
+    name: object-detection-workbench
+    namespace: ${NAMESPACE}
+EOF
+apply_yaml "${OUT_DIR}/sa-rbac.yaml"
+
+# Workbench / pipeline SA → Model Registry kube-rbac-proxy (get services/<registry>).
+# Only apply when the registry Role exists in rhoai-model-registries.
+if oc get role registry-user-xray-model-registry -n rhoai-model-registries >/dev/null 2>&1; then
+  log "binding workbench/pipeline SAs to Model Registry Role registry-user-xray-model-registry"
+  apply_yaml "${SCRIPT_DIR}/openshift/rbac-workbench-model-registry.yaml"
+else
+  warn "Role registry-user-xray-model-registry not found in rhoai-model-registries — skip workbench MR RBAC"
+fi
+
+# Bind the same Role to common DSP runner SAs if they already exist in the project.
+for sa in pipeline ds-pipeline-pipelines-definition pipeline-runner; do
+  if oc get sa "$sa" -n "$NAMESPACE" >/dev/null 2>&1; then
+    log "binding xray-isvc-patcher to existing ServiceAccount/${sa}"
+    cat >"${OUT_DIR}/rb-${sa}.yaml" <<EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: xray-isvc-patcher-${sa}
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: xray-isvc-patcher
+subjects:
+  - kind: ServiceAccount
+    name: ${sa}
+    namespace: ${NAMESPACE}
+EOF
+    apply_yaml "${OUT_DIR}/rb-${sa}.yaml"
+  fi
+done
+
+# --- Optional S3 data connection Secret (OpenShift AI dashboard-compatible) ---
+if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" && -n "${AWS_S3_ENDPOINT:-}" && -n "${AWS_S3_BUCKET:-}" ]]; then
+  REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+  log "applying data connection Secret/${CONNECTION_NAME}"
+  cat >"${OUT_DIR}/data-connection.yaml" <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${CONNECTION_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/managed: "true"
+    app.kubernetes.io/part-of: xray-lifecycle-demo
+  annotations:
+    opendatahub.io/connection-type: s3
+    openshift.io/display-name: "X-ray model storage"
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+  AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+  AWS_S3_ENDPOINT: "${AWS_S3_ENDPOINT}"
+  AWS_DEFAULT_REGION: "${REGION}"
+  AWS_S3_BUCKET: "${AWS_S3_BUCKET}"
+EOF
+  apply_yaml "${OUT_DIR}/data-connection.yaml"
+else
+  warn "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_S3_ENDPOINT / AWS_S3_BUCKET not all set — skipping data connection Secret"
+fi
+
+# --- InferenceService ---
+STORAGE_PATH="${STORAGE_PATH:-}"
+STORAGE_URI="${STORAGE_URI:-}"
+
+if [[ "$SKIP_ISVC" -eq 1 ]]; then
+  log "skipping InferenceService (--skip-isvc)"
+elif [[ -n "${STORAGE_KEY:-}" && -n "${STORAGE_PATH}" ]]; then
+  log "applying InferenceService/${ISVC_NAME} (Connection storage.key=${STORAGE_KEY} path=${STORAGE_PATH})"
+  cat >"${OUT_DIR}/inferenceservice.yaml" <<EOF
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: ${ISVC_NAME}
+  namespace: ${NAMESPACE}
+  annotations:
+    serving.kserve.io/deploymentMode: Serverless
+    serving.kserve.io/enable-tag-routing: "true"
+  labels:
+    app.kubernetes.io/name: ${ISVC_NAME}
+    app.kubernetes.io/part-of: xray-lifecycle-demo
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: onnx
+      protocolVersion: v2
+      storage:
+        key: ${STORAGE_KEY}
+        path: ${STORAGE_PATH}
+      resources:
+        requests:
+          cpu: "500m"
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+EOF
+  apply_yaml "${OUT_DIR}/inferenceservice.yaml"
+elif [[ -n "${STORAGE_URI}" ]]; then
+  log "applying InferenceService/${ISVC_NAME} (storageUri=${STORAGE_URI})"
+  cat >"${OUT_DIR}/inferenceservice.yaml" <<EOF
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: ${ISVC_NAME}
+  namespace: ${NAMESPACE}
+  annotations:
+    serving.kserve.io/deploymentMode: Serverless
+    serving.kserve.io/enable-tag-routing: "true"
+  labels:
+    app.kubernetes.io/name: ${ISVC_NAME}
+    app.kubernetes.io/part-of: xray-lifecycle-demo
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: onnx
+      protocolVersion: v2
+      storageUri: ${STORAGE_URI}
+      resources:
+        requests:
+          cpu: "500m"
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+EOF
+  apply_yaml "${OUT_DIR}/inferenceservice.yaml"
+else
+  warn "STORAGE_URI or STORAGE_KEY+STORAGE_PATH not set — InferenceService not created"
+  warn "After notebook 03 uploads ONNX, re-run with e.g.:"
+  warn "  STORAGE_URI=s3://\$AWS_S3_BUCKET/${S3_KEY_PREFIX}/<run_id> ./deploy.sh"
+  warn "or let pipelines/promote_deploy_canary.py patch a pre-created ISVC after stage=prod"
+fi
+
+# --- Optional custom workbench image (Minimal CUDA Py3.12 + install-dependencies.sh) ---
+if [[ "$BUILD_WORKBENCH" -eq 1 ]]; then
+  log "applying workbench ImageStream + BuildConfig"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "dry-run: would apply openshift/workbench Imagestream/BuildConfig and start-build"
+  else
+    # Allow builder SA to pull the RHOAI base ImageStream if needed.
+    if oc get ns redhat-ods-applications >/dev/null 2>&1; then
+      oc policy add-role-to-user system:image-puller \
+        "system:serviceaccount:${NAMESPACE}:builder" \
+        -n redhat-ods-applications >/dev/null 2>&1 || true
+    fi
+    oc apply -f "${SCRIPT_DIR}/openshift/workbench/imagestream.yaml"
+    oc apply -f "${SCRIPT_DIR}/openshift/workbench/buildconfig.yaml"
+    log "starting binary build xray-workbench (this can take several minutes)"
+    oc start-build xray-workbench -n "${NAMESPACE}" --from-dir="${SCRIPT_DIR}" --follow
+    WORKBENCH_IMAGE="image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/xray-workbench:latest"
+    log "workbench image: ${WORKBENCH_IMAGE}"
+  fi
+fi
+
+# --- Workbench Notebook (PVC + Notebook CR) ---
+if [[ "$SKIP_NOTEBOOK" -eq 1 ]]; then
+  log "skipping workbench Notebook (--skip-notebook)"
+elif [[ "$DRY_RUN" -eq 1 ]]; then
+  log "dry-run: would apply openshift/workbench/notebook-pvc.yaml + notebook.yaml"
+else
+  log "applying workbench Notebook object-detection-workbench"
+  NAMESPACE="${NAMESPACE}" \
+    STORAGE_KEY="${CONNECTION_NAME}" \
+    WORKBENCH_IMAGE="${WORKBENCH_IMAGE}" \
+    "${SCRIPT_DIR}/openshift/workbench/apply-notebook.sh"
+fi
+
+# --- Compile pipeline YAML for DSP import ---
+PIPELINE_OUT="${OUT_DIR}/promote_deploy_canary.yaml"
+if [[ "$SKIP_PIPELINE" -eq 1 ]]; then
+  log "skipping pipeline compile (--skip-pipeline)"
+elif command -v python3 >/dev/null 2>&1; then
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "dry-run: would compile pipeline to ${PIPELINE_OUT}"
+  else
+    if python3 "${SCRIPT_DIR}/pipelines/promote_deploy_canary.py" --compile "${PIPELINE_OUT}" 2>/dev/null; then
+      log "compiled pipeline: ${PIPELINE_OUT}"
+    else
+      warn "pipeline compile failed (install kfp via ./install-dependencies.sh). Continuing."
+    fi
+  fi
+else
+  warn "python3 not found — skipping pipeline compile"
+fi
+
+# --- Discover cluster URLs into ConfigMap + .deploy/env.cluster.sh ---
+# (apply-notebook.sh already runs this; re-run after ISVC so INFERENCE_* fill in.)
+ENV_OUT="${OUT_DIR}/env.cluster.sh"
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  log "dry-run: would run openshift/discover-demo-env.sh"
+else
+  log "refreshing discovered demo env (ConfigMap xray-demo-env + ${ENV_OUT})"
+  DISCOVER_ARGS=()
+  if [[ "$SKIP_NOTEBOOK" -eq 0 ]]; then
+    DISCOVER_ARGS+=(--restart)
+  fi
+  KSERVE_NAMESPACE="${NAMESPACE}" \
+    INFERENCE_SERVICE_NAME="${ISVC_NAME}" \
+    STORAGE_KEY="${CONNECTION_NAME}" \
+    S3_KEY_PREFIX="${S3_KEY_PREFIX}" \
+    "${SCRIPT_DIR}/openshift/discover-demo-env.sh" "${DISCOVER_ARGS[@]}"
+fi
+
+log "done"
+echo
+echo "Next steps:"
+if [[ "$SKIP_NOTEBOOK" -eq 0 ]]; then
+  echo "  1. Open workbench object-detection-workbench in project ${NAMESPACE}"
+  echo "     Env injected: ConfigMap xray-demo-env (MODEL_REGISTRY_URL, …) + MLflow annotation + Connection"
+else
+  echo "  1. Create/open a workbench in project ${NAMESPACE} (or re-run without --skip-notebook)"
+fi
+echo "  2. After notebook 00 / ISVC Ready, refresh endpoints:"
+echo "       ./openshift/discover-demo-env.sh --restart"
+if [[ "$BUILD_WORKBENCH" -eq 0 ]]; then
+  echo "  3. Prefer ./deploy.sh --build-workbench so the Notebook image exists; else bash install-dependencies.sh"
+  echo "  4. Demo path: notebooks/00 (seed) then 01 → 05 (canary + promote are notebook cells)"
+else
+  echo "  3. Demo path: notebooks/00 (seed) then 01 → 05 (canary + promote are notebook cells)"
+fi
+echo "  Optional CLI/DSP: ${PIPELINE_OUT} / ./pipelines/run-promote-deploy-canary.sh"
+echo "  Shell helper: source ${ENV_OUT}"
+echo
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  oc get ns "${NAMESPACE}" -o name
+  oc get sa,role,rolebinding,secret,configmap,inferenceservice -n "${NAMESPACE}" 2>/dev/null || true
+fi

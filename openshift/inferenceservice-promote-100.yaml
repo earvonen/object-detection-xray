@@ -1,0 +1,21 @@
+# Promote canary to 100% traffic by omitting canaryTrafficPercent.
+# Prefer JSON patch removal via the pipeline (src/kserve_utils.py remove_canary=True)
+# so the field is deleted rather than left at a stale value.
+#
+# This merge-style example is useful for documentation / oc apply workflows when
+# recreating the predictor spec without a canary field.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: xray-detector
+  namespace: REPLACE_ME_NAMESPACE
+  annotations:
+    serving.kserve.io/deploymentMode: Serverless
+    serving.kserve.io/enable-tag-routing: "true"
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: onnx
+      protocolVersion: v2
+      storageUri: REPLACE_ME_STORAGE_URI

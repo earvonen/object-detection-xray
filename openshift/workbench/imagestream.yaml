@@ -1,0 +1,22 @@
+# Output ImageStream for the custom workbench (selectable in OpenShift AI).
+# After each build, run annotate-imagestream.sh so tag-level annotations exist;
+# the dashboard disables Create when those are missing.
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: xray-workbench
+  namespace: object-detection-xray
+  labels:
+    opendatahub.io/notebook-image: "true"
+    app.kubernetes.io/part-of: xray-lifecycle-demo
+  annotations:
+    opendatahub.io/notebook-image-name: "X-ray detector | Minimal CUDA | Python 3.12"
+    opendatahub.io/notebook-image-desc: >-
+      Jupyter Minimal CUDA Python 3.12 with Ultralytics, MLflow, ONNX, boto3,
+      and other deps from install-dependencies.sh for the object-detection-xray demo.
+    opendatahub.io/notebook-image-order: "100"
+    opendatahub.io/notebook-image-url: https://github.com/red-hat-data-services/notebooks/tree/main/jupyter/minimal
+    opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+spec:
+  lookupPolicy:
+    local: true

@@ -21,8 +21,9 @@ metadata:
     opendatahub.io/mlflow-instance: mlflow
     # Format required by connection-notebook webhook: namespace/secret-name
     opendatahub.io/connections: __NAMESPACE__/__CONNECTION_NAME__
-    opendatahub.io/hardware-profile-name: gpu-profile
-    opendatahub.io/hardware-profile-namespace: redhat-ods-applications
+    # Cluster-specific; OpenTLC often has gpu-profile, labs may use nvidia-l4-* / nvidia-gpu.
+    opendatahub.io/hardware-profile-name: __HARDWARE_PROFILE_NAME__
+    opendatahub.io/hardware-profile-namespace: __HARDWARE_PROFILE_NAMESPACE__
     openshift.io/display-name: object-detection-workbench
     openshift.io/description: "Train / track / register X-ray detector (GPU workbench)"
 spec:

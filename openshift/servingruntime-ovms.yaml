@@ -8,6 +8,11 @@ metadata:
   annotations:
     opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
     openshift.io/display-name: OpenVINO Model Server
+    # Dashboard Deployments tab resolves runtime display via these template anns.
+    opendatahub.io/template-name: kserve-ovms
+    opendatahub.io/template-display-name: OpenVINO Model Server
+    opendatahub.io/serving-runtime-scope: global
+    opendatahub.io/apiProtocol: REST
   labels:
     opendatahub.io/dashboard: "true"
     app.kubernetes.io/part-of: xray-lifecycle-demo

@@ -18,9 +18,15 @@ metadata:
   annotations:
     serving.kserve.io/deploymentMode: Serverless
     serving.kserve.io/enable-tag-routing: "true"
+    openshift.io/display-name: xray-detector
+    opendatahub.io/model-type: predictive
+    # Connection Secret name (dashboard); same as STORAGE_KEY / __STORAGE_KEY__
+    opendatahub.io/connections: __STORAGE_KEY__
   labels:
     app.kubernetes.io/name: xray-detector
     app.kubernetes.io/part-of: xray-lifecycle-demo
+    opendatahub.io/dashboard: "true"
+    networking.kserve.io/visibility: exposed
 spec:
   predictor:
     model:

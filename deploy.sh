@@ -229,6 +229,8 @@ metadata:
     app.kubernetes.io/part-of: xray-lifecycle-demo
   annotations:
     opendatahub.io/connection-type: s3
+    opendatahub.io/connection-type-protocol: s3
+    opendatahub.io/connection-type-ref: s3
     openshift.io/display-name: "X-ray model storage"
 type: Opaque
 stringData:
